@@ -15,6 +15,9 @@ def create_application(argv: Sequence[str] | None = None) -> QApplication:
     """Create and configure the Qt application."""
     app = QApplication.instance()
     if app is not None:
+        if not isinstance(app, QApplication):
+            msg = "A non-GUI Qt application already exists in this process."
+            raise RuntimeError(msg)
         return app
 
     qt_app = QApplication(list(argv) if argv is not None else sys.argv)
