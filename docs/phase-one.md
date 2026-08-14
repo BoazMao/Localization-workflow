@@ -1,0 +1,68 @@
+# Phase One Deliverable
+
+## Goal
+
+Deliver a local, single-user desktop application that takes one video from import through timestamped transcription, terminology-controlled translation, human review, and SRT export.
+
+## Definition of done
+
+A representative 5–15 minute video can complete this workflow:
+
+1. Create and reopen a project.
+2. Import and play a supported video or audio file.
+3. Extract normalized audio with FFmpeg.
+4. Transcribe into ordered segments with stable IDs and timestamps.
+5. Edit source text without changing segment IDs.
+6. Define glossary constraints for a target language.
+7. Translate all or individual segments.
+8. Mark translations outdated when the source revision changes.
+9. Edit, regenerate, review, and approve translations.
+10. Export approved translations as a valid SRT file.
+
+Automated tests cover the critical data and workflow rules, and setup documentation works on a clean development machine.
+
+## Milestones
+
+### 0 — Foundation
+
+Native desktop shell, project configuration, repository guidance, architecture records, automated checks, and documented setup.
+
+### 1 — Projects and media import
+
+Project creation/listing, safe media storage, FFprobe metadata, and desktop playback.
+
+### 2 — Media processing
+
+FFmpeg audio extraction, progress state, reusable derived media, and actionable errors.
+
+### 3 — Transcription
+
+Provider abstraction, initial OpenAI adapter, timestamp normalization, stable segment persistence, and deterministic test provider.
+
+### 4 — Transcript review
+
+Segment editor, click-to-seek, save feedback, revision tracking, and restart persistence.
+
+### 5 — Glossary
+
+Language-aware terminology entries, matching, constraints, and per-segment preview.
+
+### 6 — Translation
+
+Provider abstraction, target language selection, bulk and single translation, persistence, regeneration, and partial retry.
+
+### 7 — Review and invalidation
+
+Draft/review/approved/outdated states, editing, approval, filters, and source-revision invalidation.
+
+### 8 — SRT export
+
+Validated timestamps, ordered cues, warnings for missing or outdated translations, and downloadable export.
+
+### 9 — Hardening
+
+End-to-end verification, failure recovery, secret review, packaging documentation, and demonstration project.
+
+## Deferred
+
+Authentication, cloud deployment, collaboration, guaranteed diarization, word-level timing, dubbing, voice cloning, translation memory, timing-aware rewriting, bulk processing, and production billing.
