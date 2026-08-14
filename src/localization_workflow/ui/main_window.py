@@ -76,7 +76,8 @@ class MainWindow(QMainWindow):
         status = QLabel("Milestone 0 · Desktop foundation")
         status.setStyleSheet("font-weight: 600; color: #356859;")
         description = QLabel(
-            "The application shell is ready. Project creation and media import arrive in Milestone 1."
+            "The application shell is ready. Project creation and media import "
+            "arrive in Milestone 1."
         )
         description.setWordWrap(True)
 
