@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from threading import Event
 
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QAction, QKeySequence
@@ -16,6 +17,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMainWindow,
     QMessageBox,
+    QProgressBar,
     QPushButton,
     QStackedWidget,
     QStatusBar,
@@ -25,7 +27,7 @@ from PySide6.QtWidgets import (
 
 from localization_workflow.application.projects import ProjectService
 from localization_workflow.core.paths import AppPaths
-from localization_workflow.domain.projects import Project, ProjectStatus
+from localization_workflow.domain.projects import AudioStatus, Project, ProjectStatus
 from localization_workflow.infrastructure.media import SUPPORTED_MEDIA_EXTENSIONS
 from localization_workflow.ui.media_player import MediaPlayerWidget, format_milliseconds
 
@@ -49,6 +51,32 @@ class ImportWorker(QThread):
             self.failed.emit(str(error))
 
 
+class AudioWorker(QThread):
+    """Prepare transcription audio without blocking the UI thread."""
+
+    completed = Signal(object)
+    failed = Signal(str)
+    progress_changed = Signal(int)
+
+    def __init__(self, service: ProjectService, project_id: str) -> None:
+        super().__init__()
+        self._service = service
+        self._project_id = project_id
+        self._cancel = Event()
+
+    def cancel(self) -> None:
+        self._cancel.set()
+
+    def run(self) -> None:
+        try:
+            project = self._service.prepare_audio(
+                self._project_id, self.progress_changed.emit, self._cancel
+            )
+            self.completed.emit(project)
+        except Exception as error:
+            self.failed.emit(str(error))
+
+
 class MainWindow(QMainWindow):
     """Desktop project library and media workspace."""
 
@@ -58,6 +86,7 @@ class MainWindow(QMainWindow):
         self._projects = projects
         self._current_project: Project | None = None
         self._import_worker: ImportWorker | None = None
+        self._audio_worker: AudioWorker | None = None
         self.setWindowTitle("Localization Workflow")
         self.setMinimumSize(1024, 700)
         self.resize(1280, 820)
@@ -140,10 +169,25 @@ class MainWindow(QMainWindow):
         self._media_details.setStyleSheet("color: #5f6368;")
         self._player = MediaPlayerWidget()
         self._player.load(None)
+        audio_controls = QHBoxLayout()
+        self._prepare_audio_button = QPushButton("Prepare audio")
+        self._prepare_audio_button.clicked.connect(self._prepare_audio)
+        self._cancel_audio_button = QPushButton("Cancel")
+        self._cancel_audio_button.clicked.connect(self._cancel_audio)
+        self._cancel_audio_button.setVisible(False)
+        self._audio_progress = QProgressBar()
+        self._audio_progress.setRange(0, 100)
+        self._audio_progress.setVisible(False)
+        self._audio_status = QLabel("Audio not prepared")
+        audio_controls.addWidget(self._prepare_audio_button)
+        audio_controls.addWidget(self._cancel_audio_button)
+        audio_controls.addWidget(self._audio_progress, 1)
+        audio_controls.addWidget(self._audio_status)
 
         layout.addLayout(top)
         layout.addWidget(self._media_details)
         layout.addWidget(self._player, 1)
+        layout.addLayout(audio_controls)
         return page
 
     def _build_status_bar(self) -> None:
@@ -264,11 +308,61 @@ class MainWindow(QMainWindow):
             self._import_worker.deleteLater()
         self._import_worker = None
 
+    def _prepare_audio(self) -> None:
+        if self._current_project is None or self._audio_worker is not None:
+            return
+        if not self._current_project.media_path:
+            QMessageBox.information(self, "Prepare audio", "Import media first.")
+            return
+        worker = AudioWorker(self._projects, self._current_project.id)
+        worker.progress_changed.connect(self._audio_progress.setValue)
+        worker.completed.connect(self._on_audio_completed)
+        worker.failed.connect(self._on_audio_failed)
+        worker.finished.connect(self._on_audio_finished)
+        self._audio_worker = worker
+        self._prepare_audio_button.setEnabled(False)
+        self._cancel_audio_button.setVisible(True)
+        self._audio_progress.setValue(0)
+        self._audio_progress.setVisible(True)
+        self._audio_status.setText("Preparing mono 16 kHz WAV…")
+        worker.start()
+
+    def _cancel_audio(self) -> None:
+        if self._audio_worker:
+            self._cancel_audio_button.setEnabled(False)
+            self._audio_status.setText("Cancelling…")
+            self._audio_worker.cancel()
+
+    def _on_audio_completed(self, value: object) -> None:
+        if isinstance(value, Project):
+            self._current_project = value
+            self._update_audio_display(value)
+            self.statusBar().showMessage("Transcription audio is ready.", 5000)
+
+    def _on_audio_failed(self, message: str) -> None:
+        if self._current_project:
+            self._current_project = self._projects.get(self._current_project.id)
+            self._update_audio_display(self._current_project)
+        if "cancel" not in message.lower():
+            QMessageBox.critical(self, "Audio preparation failed", message)
+
+    def _on_audio_finished(self) -> None:
+        self._prepare_audio_button.setEnabled(True)
+        self._cancel_audio_button.setEnabled(True)
+        self._cancel_audio_button.setVisible(False)
+        self._audio_progress.setVisible(False)
+        if self._audio_worker:
+            self._audio_worker.deleteLater()
+        self._audio_worker = None
+
     def _update_media_display(self, project: Project) -> None:
         if not project.media_path:
             self._media_details.setText("No media imported yet.")
             self._player.load(None)
+            self._prepare_audio_button.setEnabled(False)
+            self._update_audio_display(project)
             return
+        self._prepare_audio_button.setEnabled(True)
         resolution = (
             f" · {project.width}x{project.height}" if project.width and project.height else ""
         )
@@ -278,6 +372,16 @@ class MainWindow(QMainWindow):
             f"{resolution} · {codecs or 'Unknown codec'}"
         )
         self._player.load(project.media_path)
+        self._update_audio_display(project)
+
+    def _update_audio_display(self, project: Project) -> None:
+        labels = {
+            AudioStatus.NOT_PREPARED: "Audio not prepared",
+            AudioStatus.PROCESSING: "Audio preparation interrupted",
+            AudioStatus.READY: "Mono 16 kHz WAV ready",
+            AudioStatus.FAILED: f"Audio failed: {project.audio_error or 'Unknown error'}",
+        }
+        self._audio_status.setText(labels[project.audio_status])
 
     def _show_about(self) -> None:
         QMessageBox.about(

@@ -12,7 +12,7 @@ from alembic.config import Config
 from sqlalchemy import DateTime, Integer, String, create_engine, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
-from localization_workflow.domain.projects import Project, ProjectStatus
+from localization_workflow.domain.projects import AudioStatus, Project, ProjectStatus
 
 
 class Base(DeclarativeBase):
@@ -36,6 +36,10 @@ class ProjectRecord(Base):
     audio_codec: Mapped[str | None] = mapped_column(String(100))
     width: Mapped[int | None] = mapped_column(Integer)
     height: Mapped[int | None] = mapped_column(Integer)
+    audio_status: Mapped[str] = mapped_column(String(30), nullable=False, default="not_prepared")
+    derived_audio_path: Mapped[str | None] = mapped_column(String(1000))
+    derived_audio_duration_ms: Mapped[int | None] = mapped_column(Integer)
+    audio_error: Mapped[str | None] = mapped_column(String(1000))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
@@ -118,6 +122,12 @@ class ProjectRepository:
             audio_codec=project.audio_codec,
             width=project.width,
             height=project.height,
+            audio_status=project.audio_status.value,
+            derived_audio_path=(
+                str(project.derived_audio_path) if project.derived_audio_path else None
+            ),
+            derived_audio_duration_ms=project.derived_audio_duration_ms,
+            audio_error=project.audio_error,
             created_at=project.created_at,
             updated_at=project.updated_at,
         )
@@ -149,4 +159,10 @@ class ProjectRepository:
             audio_codec=record.audio_codec,
             width=record.width,
             height=record.height,
+            audio_status=AudioStatus(record.audio_status),
+            derived_audio_path=(
+                Path(record.derived_audio_path) if record.derived_audio_path else None
+            ),
+            derived_audio_duration_ms=record.derived_audio_duration_ms,
+            audio_error=record.audio_error,
         )

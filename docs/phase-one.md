@@ -38,6 +38,9 @@ managed media copies, background import, and Qt Multimedia playback.
 
 FFmpeg audio extraction, progress state, reusable derived media, and actionable errors.
 
+Implemented locally on `agent/milestone-two` with cancellable background processing,
+validated mono 16 kHz PCM WAV output, persisted status, reuse, and failure cleanup.
+
 ### 3 — Transcription
 
 Provider abstraction, initial OpenAI adapter, timestamp normalization, stable segment persistence, and deterministic test provider.

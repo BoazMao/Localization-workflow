@@ -5,9 +5,15 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
+from threading import Event
 from uuid import uuid4
 
-from localization_workflow.domain.projects import Project, ProjectStatus
+from localization_workflow.domain.projects import AudioStatus, Project, ProjectStatus
+from localization_workflow.infrastructure.audio import (
+    AudioPreparationCancelled,
+    AudioProcessorProtocol,
+    ProgressCallback,
+)
 from localization_workflow.infrastructure.database import ProjectRepository
 from localization_workflow.infrastructure.media import ManagedMediaStore
 
@@ -19,9 +25,15 @@ class ProjectNotFoundError(LookupError):
 class ProjectService:
     """Coordinate project persistence and managed media."""
 
-    def __init__(self, repository: ProjectRepository, media_store: ManagedMediaStore) -> None:
+    def __init__(
+        self,
+        repository: ProjectRepository,
+        media_store: ManagedMediaStore,
+        audio_processor: AudioProcessorProtocol,
+    ) -> None:
         self._repository = repository
         self._media_store = media_store
+        self._audio_processor = audio_processor
 
     def create(self, name: str, source_language: str = "Auto-detect") -> Project:
         clean_name = name.strip()
@@ -71,12 +83,77 @@ class ProjectService:
             audio_codec=info.audio_codec,
             width=info.width,
             height=info.height,
+            audio_status=AudioStatus.NOT_PREPARED,
+            derived_audio_path=None,
+            derived_audio_duration_ms=None,
+            audio_error=None,
             updated_at=datetime.now(UTC),
         )
         self._repository.update(updated)
         if project.media_path and project.media_path != destination:
             project.media_path.unlink(missing_ok=True)
+        if project.derived_audio_path:
+            project.derived_audio_path.unlink(missing_ok=True)
         return updated
+
+    def prepare_audio(
+        self,
+        project_id: str,
+        progress: ProgressCallback,
+        cancel: Event,
+    ) -> Project:
+        project = self.get(project_id)
+        if not project.media_path:
+            raise ValueError("Import media before preparing transcription audio.")
+        reuse_existing = (
+            project.audio_status == AudioStatus.READY
+            and project.derived_audio_path is not None
+            and project.derived_audio_path.is_file()
+        )
+        processing = replace(
+            project,
+            audio_status=AudioStatus.PROCESSING,
+            audio_error=None,
+            updated_at=datetime.now(UTC),
+        )
+        self._repository.update(processing)
+        try:
+            destination = self._audio_processor.prepare(
+                project.id,
+                project.media_path,
+                project.duration_ms or 0,
+                progress,
+                cancel,
+                reuse_existing,
+            )
+        except AudioPreparationCancelled:
+            cancelled = replace(
+                project,
+                audio_status=AudioStatus.NOT_PREPARED,
+                audio_error=None,
+                updated_at=datetime.now(UTC),
+            )
+            self._repository.update(cancelled)
+            raise
+        except Exception as error:
+            failed = replace(
+                project,
+                audio_status=AudioStatus.FAILED,
+                audio_error=str(error),
+                updated_at=datetime.now(UTC),
+            )
+            self._repository.update(failed)
+            raise
+        ready = replace(
+            project,
+            audio_status=AudioStatus.READY,
+            derived_audio_path=destination,
+            derived_audio_duration_ms=project.duration_ms,
+            audio_error=None,
+            updated_at=datetime.now(UTC),
+        )
+        self._repository.update(ready)
+        return ready
 
     def delete(self, project_id: str) -> None:
         self.get(project_id)

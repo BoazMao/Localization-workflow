@@ -15,6 +15,15 @@ class ProjectStatus(StrEnum):
     MEDIA_READY = "media_ready"
 
 
+class AudioStatus(StrEnum):
+    """Derived transcription-audio processing state."""
+
+    NOT_PREPARED = "not_prepared"
+    PROCESSING = "processing"
+    READY = "ready"
+    FAILED = "failed"
+
+
 @dataclass(frozen=True, slots=True)
 class MediaInfo:
     """Normalized metadata returned by a media probe."""
@@ -45,3 +54,7 @@ class Project:
     audio_codec: str | None = None
     width: int | None = None
     height: int | None = None
+    audio_status: AudioStatus = AudioStatus.NOT_PREPARED
+    derived_audio_path: Path | None = None
+    derived_audio_duration_ms: int | None = None
+    audio_error: str | None = None

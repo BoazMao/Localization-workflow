@@ -58,6 +58,11 @@ Every transcript segment receives a UUID that survives source-text edits. A segm
 
 Transcription and translation are separate protocols. Provider-specific request/response formats are normalized at the adapter boundary. Automated tests use deterministic fake providers and never call paid services.
 
+The initial transcription provider will fully integrate the unmodified Const-me Whisper
+Windows engine and WhisperPS automation module. Its timestamped output will be normalized
+into application-owned transcript segments; the external WhisperDesktop interface is not
+part of the user workflow.
+
 ## Secrets
 
 Credentials come from environment variables or a future operating-system credential store. They are never committed, logged, included in exported projects, or persisted in plain text by the application.

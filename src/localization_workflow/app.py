@@ -10,6 +10,7 @@ from PySide6.QtWidgets import QApplication
 from localization_workflow.application.projects import ProjectService
 from localization_workflow.core.paths import AppPaths
 from localization_workflow.core.settings import AppSettings
+from localization_workflow.infrastructure.audio import FFmpegAudioProcessor
 from localization_workflow.infrastructure.database import Database, ProjectRepository
 from localization_workflow.infrastructure.media import FFprobeMediaProbe, ManagedMediaStore
 from localization_workflow.ui.main_window import MainWindow
@@ -42,7 +43,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     database.migrate()
     repository = ProjectRepository(database)
     media_store = ManagedMediaStore(paths.media, FFprobeMediaProbe(settings.ffprobe_path))
-    projects = ProjectService(repository, media_store)
+    if settings.ffmpeg_path is None:
+        msg = "FFMPEG_PATH must be configured before starting the application."
+        raise RuntimeError(msg)
+    audio_processor = FFmpegAudioProcessor(paths.derived, settings.ffmpeg_path)
+    projects = ProjectService(repository, media_store, audio_processor)
 
     window = MainWindow(paths=paths, projects=projects)
     window.show()
