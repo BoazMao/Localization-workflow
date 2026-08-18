@@ -45,6 +45,22 @@ mypy src
 pytest
 ```
 
+## Local Windows environment
+
+The current development checkout uses:
+
+- source: `F:\Localization-workflow`
+- virtual environment: `F:\Localization-workflow\.venv`
+- runtime data: `F:\Localization-workflow-data`
+- FFmpeg: `F:\Tools\FFmpeg`
+
+Copy `.env.example` to `.env`, configure the data directory and FFprobe path, then run:
+
+```powershell
+.\.venv\Scripts\python.exe -m localization_workflow
+```
+
 ## Status
 
-Milestone 0 establishes the runnable desktop shell, repository conventions, documentation, and automated checks. Media import begins in Milestone 1.
+Milestone 1 provides persistent projects, managed video/audio import, FFprobe metadata,
+and embedded Qt playback. Transcription begins in a later milestone.

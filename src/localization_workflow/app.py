@@ -7,7 +7,11 @@ from collections.abc import Sequence
 
 from PySide6.QtWidgets import QApplication
 
+from localization_workflow.application.projects import ProjectService
 from localization_workflow.core.paths import AppPaths
+from localization_workflow.core.settings import AppSettings
+from localization_workflow.infrastructure.database import Database, ProjectRepository
+from localization_workflow.infrastructure.media import FFprobeMediaProbe, ManagedMediaStore
 from localization_workflow.ui.main_window import MainWindow
 
 
@@ -30,9 +34,16 @@ def create_application(argv: Sequence[str] | None = None) -> QApplication:
 def main(argv: Sequence[str] | None = None) -> int:
     """Start the native desktop application."""
     app = create_application(argv)
-    paths = AppPaths.discover()
+    settings = AppSettings()
+    paths = AppPaths.discover(settings.data_dir)
     paths.ensure_directories()
 
-    window = MainWindow(paths=paths)
+    database = Database(paths.database)
+    database.migrate()
+    repository = ProjectRepository(database)
+    media_store = ManagedMediaStore(paths.media, FFprobeMediaProbe(settings.ffprobe_path))
+    projects = ProjectService(repository, media_store)
+
+    window = MainWindow(paths=paths, projects=projects)
     window.show()
     return app.exec()

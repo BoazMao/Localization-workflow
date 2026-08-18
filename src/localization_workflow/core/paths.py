@@ -22,9 +22,9 @@ class AppPaths:
     database: Path
 
     @classmethod
-    def discover(cls) -> AppPaths:
+    def discover(cls, configured_data_dir: Path | None = None) -> AppPaths:
         """Resolve paths, honoring an explicit data-directory override."""
-        configured = os.environ.get(_DATA_DIR_ENV)
+        configured = configured_data_dir or os.environ.get(_DATA_DIR_ENV)
         data = (
             Path(configured).expanduser().resolve()
             if configured

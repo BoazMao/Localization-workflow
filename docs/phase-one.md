@@ -31,6 +31,9 @@ Native desktop shell, project configuration, repository guidance, architecture r
 
 Project creation/listing, safe media storage, FFprobe metadata, and desktop playback.
 
+Implemented locally on the `agent/milestone-one` branch with SQLite/Alembic persistence,
+managed media copies, background import, and Qt Multimedia playback.
+
 ### 2 — Media processing
 
 FFmpeg audio extraction, progress state, reusable derived media, and actionable errors.

@@ -31,3 +31,9 @@ def test_ensure_directories_creates_owned_folders(tmp_path: Path) -> None:
     assert paths.media.is_dir()
     assert paths.derived.is_dir()
     assert paths.exports.is_dir()
+
+
+def test_discover_accepts_explicit_data_directory(tmp_path: Path) -> None:
+    paths = AppPaths.discover(tmp_path / "explicit")
+
+    assert paths.data == (tmp_path / "explicit").resolve()
