@@ -50,6 +50,20 @@ class TranscriptionService:
     def list_segments(self, project_id: str) -> list[TranscriptSegment]:
         return self._transcripts.list_for_project(project_id)
 
+    def save_edits(self, project_id: str, changes: dict[str, str]) -> list[TranscriptSegment]:
+        normalized: dict[str, str] = {}
+        for segment_id, text in changes.items():
+            clean_text = text.strip()
+            if not clean_text:
+                raise ValueError("Transcript segments cannot be empty.")
+            normalized[segment_id] = clean_text
+        updated = self._transcripts.update_texts(project_id, normalized)
+        project = self._projects.get(project_id)
+        if project is None:
+            raise LookupError(project_id)
+        self._projects.update(replace(project, updated_at=datetime.now(UTC)))
+        return updated
+
     def transcribe(
         self,
         project_id: str,

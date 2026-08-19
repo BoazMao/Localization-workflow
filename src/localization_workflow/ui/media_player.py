@@ -68,6 +68,10 @@ class MediaPlayerWidget(QWidget):
         self._player.setSource(QUrl.fromLocalFile(str(path)) if path else QUrl())
         self._play_button.setEnabled(path is not None)
 
+    def seek(self, position_ms: int) -> None:
+        """Move playback to a transcript timestamp."""
+        self._player.setPosition(max(0, position_ms))
+
     def _toggle_playback(self) -> None:
         if self._player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
             self._player.pause()

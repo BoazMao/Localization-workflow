@@ -5,12 +5,13 @@ from __future__ import annotations
 from pathlib import Path
 from threading import Event
 
-from PySide6.QtCore import Qt, QThread, Signal
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtCore import QSignalBlocker, Qt, QThread, Signal
+from PySide6.QtGui import QAction, QCloseEvent, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QFileDialog,
     QHBoxLayout,
+    QHeaderView,
     QInputDialog,
     QLabel,
     QListWidget,
@@ -35,6 +36,7 @@ from localization_workflow.domain.projects import (
     Project,
     ProjectStatus,
     TranscriptionStatus,
+    TranscriptSegment,
 )
 from localization_workflow.infrastructure.media import SUPPORTED_MEDIA_EXTENSIONS
 from localization_workflow.ui.media_player import MediaPlayerWidget, format_milliseconds
@@ -128,6 +130,7 @@ class MainWindow(QMainWindow):
         self._import_worker: ImportWorker | None = None
         self._audio_worker: AudioWorker | None = None
         self._transcription_worker: TranscriptionWorker | None = None
+        self._dirty_segments: dict[str, str] = {}
         self.setWindowTitle("Localization Workflow")
         self.setMinimumSize(1024, 700)
         self.resize(1280, 820)
@@ -247,11 +250,29 @@ class MainWindow(QMainWindow):
         self._import_model_button.clicked.connect(self._choose_model)
         model_controls.addWidget(self._model_label, 1)
         model_controls.addWidget(self._import_model_button)
-        self._transcript_table = QTableWidget(0, 2)
-        self._transcript_table.setHorizontalHeaderLabels(("Time", "Source transcript"))
-        self._transcript_table.horizontalHeader().setStretchLastSection(True)
-        self._transcript_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._transcript_table = QTableWidget(0, 3)
+        self._transcript_table.setHorizontalHeaderLabels(("Time", "Source transcript", "Rev"))
+        header = self._transcript_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self._transcript_table.setEditTriggers(
+            QAbstractItemView.EditTrigger.DoubleClicked
+            | QAbstractItemView.EditTrigger.EditKeyPressed
+            | QAbstractItemView.EditTrigger.SelectedClicked
+        )
         self._transcript_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self._transcript_table.itemChanged.connect(self._on_transcript_changed)
+        self._transcript_table.cellClicked.connect(self._seek_to_segment)
+        review_controls = QHBoxLayout()
+        self._save_transcript_button = QPushButton("Save transcript changes")
+        self._save_transcript_button.setEnabled(False)
+        self._save_transcript_button.clicked.connect(self._save_transcript)
+        self._save_status = QLabel("All changes saved")
+        self._save_status.setStyleSheet("color: #5f6368;")
+        review_controls.addWidget(self._save_transcript_button)
+        review_controls.addWidget(self._save_status)
+        review_controls.addStretch()
 
         layout.addLayout(top)
         layout.addWidget(self._media_details)
@@ -259,6 +280,7 @@ class MainWindow(QMainWindow):
         layout.addLayout(audio_controls)
         layout.addLayout(model_controls)
         layout.addLayout(transcription_controls)
+        layout.addLayout(review_controls)
         layout.addWidget(self._transcript_table, 1)
         return page
 
@@ -311,6 +333,8 @@ class MainWindow(QMainWindow):
         self._pages.setCurrentWidget(self._workspace_page)
 
     def _show_library(self) -> None:
+        if not self._confirm_discard_edits():
+            return
         self._player.load(None)
         self._refresh_projects(self._current_project.id if self._current_project else None)
         self._pages.setCurrentWidget(self._library_page)
@@ -347,6 +371,8 @@ class MainWindow(QMainWindow):
 
     def _choose_media(self) -> None:
         if self._current_project is None or self._import_worker is not None:
+            return
+        if not self._confirm_discard_edits():
             return
         extensions = " ".join(f"*{extension}" for extension in sorted(SUPPORTED_MEDIA_EXTENSIONS))
         filename, _ = QFileDialog.getOpenFileName(
@@ -432,6 +458,8 @@ class MainWindow(QMainWindow):
 
     def _transcribe(self) -> None:
         if self._current_project is None or self._transcription_worker is not None:
+            return
+        if not self._confirm_discard_edits():
             return
         if self._current_project.audio_status != AudioStatus.READY:
             QMessageBox.information(self, "Transcribe", "Prepare transcription audio first.")
@@ -545,13 +573,87 @@ class MainWindow(QMainWindow):
         self._transcription_status.setText(labels[project.transcription_status])
         self._transcribe_button.setEnabled(project.audio_status == AudioStatus.READY)
         segments = self._transcription.list_segments(project.id)
+        self._populate_transcript(segments)
+
+    def _populate_transcript(self, segments: list[TranscriptSegment]) -> None:
+        blocker = QSignalBlocker(self._transcript_table)
         self._transcript_table.setRowCount(len(segments))
         for row, segment in enumerate(segments):
             timing = (
                 f"{format_milliseconds(segment.start_ms)} - {format_milliseconds(segment.end_ms)}"
             )
-            self._transcript_table.setItem(row, 0, QTableWidgetItem(timing))
-            self._transcript_table.setItem(row, 1, QTableWidgetItem(segment.text))
+            timing_item = QTableWidgetItem(timing)
+            timing_item.setData(Qt.ItemDataRole.UserRole, segment.start_ms)
+            timing_item.setFlags(timing_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            text_item = QTableWidgetItem(segment.text)
+            text_item.setData(Qt.ItemDataRole.UserRole, segment.id)
+            revision_item = QTableWidgetItem(str(segment.source_revision))
+            revision_item.setFlags(revision_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self._transcript_table.setItem(row, 0, timing_item)
+            self._transcript_table.setItem(row, 1, text_item)
+            self._transcript_table.setItem(row, 2, revision_item)
+        del blocker
+        self._dirty_segments.clear()
+        self._save_transcript_button.setEnabled(False)
+        self._save_status.setText("All changes saved")
+
+    def _on_transcript_changed(self, item: QTableWidgetItem) -> None:
+        if item.column() != 1:
+            return
+        segment_id = item.data(Qt.ItemDataRole.UserRole)
+        if segment_id:
+            self._dirty_segments[str(segment_id)] = item.text()
+            self._save_transcript_button.setEnabled(True)
+            self._save_status.setText(f"{len(self._dirty_segments)} unsaved change(s)")
+
+    def _save_transcript(self) -> bool:
+        if not self._dirty_segments:
+            return True
+        if self._current_project is None:
+            return False
+        try:
+            segments = self._transcription.save_edits(
+                self._current_project.id, self._dirty_segments
+            )
+        except Exception as error:
+            self._save_status.setText("Save failed")
+            QMessageBox.critical(self, "Transcript save failed", str(error))
+            return False
+        self._populate_transcript(segments)
+        self.statusBar().showMessage("Transcript changes saved.", 5000)
+        return True
+
+    def _seek_to_segment(self, row: int, _column: int) -> None:
+        timing_item = self._transcript_table.item(row, 0)
+        if timing_item is not None:
+            position = timing_item.data(Qt.ItemDataRole.UserRole)
+            if isinstance(position, int):
+                self._player.seek(position)
+
+    def _confirm_discard_edits(self) -> bool:
+        if not self._dirty_segments:
+            return True
+        choice = QMessageBox.question(
+            self,
+            "Unsaved transcript changes",
+            "Save transcript changes before continuing?",
+            QMessageBox.StandardButton.Save
+            | QMessageBox.StandardButton.Discard
+            | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Save,
+        )
+        if choice == QMessageBox.StandardButton.Save:
+            return self._save_transcript()
+        if choice == QMessageBox.StandardButton.Discard:
+            self._dirty_segments.clear()
+            return True
+        return False
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        if self._confirm_discard_edits():
+            event.accept()
+        else:
+            event.ignore()
 
     def _show_about(self) -> None:
         QMessageBox.about(

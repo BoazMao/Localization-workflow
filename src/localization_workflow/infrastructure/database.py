@@ -239,6 +239,31 @@ class TranscriptRepository:
     def delete(self, project_id: str) -> None:
         self.replace(project_id, [])
 
+    def update_texts(self, project_id: str, changes: dict[str, str]) -> list[TranscriptSegment]:
+        """Atomically update text and increment revisions only for real changes."""
+        if not changes:
+            return self.list_for_project(project_id)
+        with self._database.session() as session:
+            records = session.scalars(
+                select(TranscriptSegmentRecord).where(
+                    TranscriptSegmentRecord.project_id == project_id,
+                    TranscriptSegmentRecord.id.in_(changes),
+                )
+            ).all()
+            if len(records) != len(changes):
+                raise LookupError("One or more transcript segments no longer exist.")
+            for record in records:
+                new_text = changes[record.id]
+                if record.text != new_text:
+                    record.text = new_text
+                    record.source_revision += 1
+            all_records = session.scalars(
+                select(TranscriptSegmentRecord)
+                .where(TranscriptSegmentRecord.project_id == project_id)
+                .order_by(TranscriptSegmentRecord.position)
+            ).all()
+            return [self._to_domain(record) for record in all_records]
+
     @staticmethod
     def _to_domain(record: TranscriptSegmentRecord) -> TranscriptSegment:
         return TranscriptSegment(

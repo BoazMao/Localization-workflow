@@ -50,6 +50,9 @@ persistence, deterministic test provider, and read-only transcript display.
 
 Segment editor, click-to-seek, save feedback, revision tracking, and restart persistence.
 
+Implemented locally on `agent/milestone-four` with atomic source-text edits, stable segment
+IDs, revision increments, click-to-seek playback, and unsaved-change protection.
+
 ### 5 — Glossary
 
 Language-aware terminology entries, matching, constraints, and per-segment preview.
