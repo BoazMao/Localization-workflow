@@ -34,6 +34,9 @@ localization-workflow = "localization_workflow.app:main"
 [tool.hatch.build.targets.wheel]
 packages = ["src/localization_workflow"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"src/localization_workflow/infrastructure/migrations" = "localization_workflow/infrastructure/migrations"
+
 [tool.ruff]
 target-version = "py312"
 line-length = 100

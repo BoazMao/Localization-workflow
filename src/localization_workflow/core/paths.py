@@ -19,12 +19,14 @@ class AppPaths:
     media: Path
     derived: Path
     exports: Path
+    models: Path
+    tools: Path
     database: Path
 
     @classmethod
-    def discover(cls) -> AppPaths:
+    def discover(cls, configured_data_dir: Path | None = None) -> AppPaths:
         """Resolve paths, honoring an explicit data-directory override."""
-        configured = os.environ.get(_DATA_DIR_ENV)
+        configured = configured_data_dir or os.environ.get(_DATA_DIR_ENV)
         data = (
             Path(configured).expanduser().resolve()
             if configured
@@ -41,10 +43,19 @@ class AppPaths:
             media=data / "media",
             derived=data / "derived",
             exports=data / "exports",
+            models=data / "models",
+            tools=data / "tools",
             database=data / "localization-workflow.sqlite3",
         )
 
     def ensure_directories(self) -> None:
         """Create application-owned directories if they do not exist."""
-        for directory in (self.data, self.media, self.derived, self.exports):
+        for directory in (
+            self.data,
+            self.media,
+            self.derived,
+            self.exports,
+            self.models,
+            self.tools,
+        ):
             directory.mkdir(parents=True, exist_ok=True)

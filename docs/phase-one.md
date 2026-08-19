@@ -31,13 +31,20 @@ Native desktop shell, project configuration, repository guidance, architecture r
 
 Project creation/listing, safe media storage, FFprobe metadata, and desktop playback.
 
+Implemented locally on the `agent/milestone-one` branch with SQLite/Alembic persistence,
+managed media copies, background import, and Qt Multimedia playback.
+
 ### 2 — Media processing
 
 FFmpeg audio extraction, progress state, reusable derived media, and actionable errors.
 
+Implemented locally on `agent/milestone-two` with cancellable background processing,
+validated mono 16 kHz PCM WAV output, persisted status, reuse, and failure cleanup.
+
 ### 3 — Transcription
 
-Provider abstraction, initial OpenAI adapter, timestamp normalization, stable segment persistence, and deterministic test provider.
+Provider abstraction, Const-me/Whisper adapter, timestamp normalization, stable segment
+persistence, deterministic test provider, and read-only transcript display.
 
 ### 4 — Transcript review
 

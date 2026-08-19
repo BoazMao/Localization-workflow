@@ -23,6 +23,8 @@ def test_ensure_directories_creates_owned_folders(tmp_path: Path) -> None:
         media=tmp_path / "media",
         derived=tmp_path / "derived",
         exports=tmp_path / "exports",
+        models=tmp_path / "models",
+        tools=tmp_path / "tools",
         database=tmp_path / "app.sqlite3",
     )
 
@@ -31,3 +33,11 @@ def test_ensure_directories_creates_owned_folders(tmp_path: Path) -> None:
     assert paths.media.is_dir()
     assert paths.derived.is_dir()
     assert paths.exports.is_dir()
+    assert paths.models.is_dir()
+    assert paths.tools.is_dir()
+
+
+def test_discover_accepts_explicit_data_directory(tmp_path: Path) -> None:
+    paths = AppPaths.discover(tmp_path / "explicit")
+
+    assert paths.data == (tmp_path / "explicit").resolve()

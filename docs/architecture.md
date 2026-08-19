@@ -39,6 +39,17 @@ Video processing and API requests cannot run on the Qt UI thread. Long-running o
 
 SQLite is accessed through SQLAlchemy. Alembic owns schema migrations. Original media, derived audio, and exports live under the application data directory; the database stores managed paths and metadata, not video blobs.
 
+Milestone 1 introduces `ProjectService` as the application boundary. It coordinates a
+`ProjectRepository` and `ManagedMediaStore`; the Qt interface does not issue SQL or media
+subprocess commands directly. Database startup runs the bundled Alembic migrations.
+
+## Managed media
+
+Imported media is copied into an application-owned directory scoped by project UUID. The
+original user-selected file is never modified. FFprobe runs behind `FFprobeMediaProbe`, and
+its provider-specific JSON is normalized into a `MediaInfo` domain value. Replacement and
+deletion operate only on paths verified to remain beneath the managed media root.
+
 ## Stable segment rule
 
 Every transcript segment receives a UUID that survives source-text edits. A segment has a monotonically increasing source revision. Each translation records the source revision from which it was produced. A mismatch makes that translation outdated without deleting it.
@@ -46,6 +57,11 @@ Every transcript segment receives a UUID that survives source-text edits. A segm
 ## Provider boundaries
 
 Transcription and translation are separate protocols. Provider-specific request/response formats are normalized at the adapter boundary. Automated tests use deterministic fake providers and never call paid services.
+
+The initial transcription provider will fully integrate the unmodified Const-me Whisper
+Windows engine and official command-line interface. Its timestamped output will be normalized
+into application-owned transcript segments; the external WhisperDesktop interface is not
+part of the user workflow.
 
 ## Secrets
 
