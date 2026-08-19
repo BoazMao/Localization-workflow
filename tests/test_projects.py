@@ -3,7 +3,11 @@ from threading import Event
 
 from localization_workflow.application.projects import ProjectService
 from localization_workflow.domain.projects import MediaInfo, ProjectStatus
-from localization_workflow.infrastructure.database import Database, ProjectRepository
+from localization_workflow.infrastructure.database import (
+    Database,
+    ProjectRepository,
+    TranscriptRepository,
+)
 from localization_workflow.infrastructure.media import ManagedMediaStore
 
 
@@ -50,7 +54,12 @@ def make_service(
     database.migrate()
     repository = ProjectRepository(database)
     media_store = ManagedMediaStore(tmp_path / "media", FakeProbe())
-    return ProjectService(repository, media_store, audio_processor or FakeAudioProcessor())
+    return ProjectService(
+        repository,
+        media_store,
+        audio_processor or FakeAudioProcessor(),
+        TranscriptRepository(database),
+    )
 
 
 def test_project_survives_repository_reopen(tmp_path: Path) -> None:

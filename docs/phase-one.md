@@ -43,7 +43,8 @@ validated mono 16 kHz PCM WAV output, persisted status, reuse, and failure clean
 
 ### 3 — Transcription
 
-Provider abstraction, initial OpenAI adapter, timestamp normalization, stable segment persistence, and deterministic test provider.
+Provider abstraction, Const-me/Whisper adapter, timestamp normalization, stable segment
+persistence, deterministic test provider, and read-only transcript display.
 
 ### 4 — Transcript review
 

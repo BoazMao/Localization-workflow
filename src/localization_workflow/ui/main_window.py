@@ -21,13 +21,21 @@ from PySide6.QtWidgets import (
     QPushButton,
     QStackedWidget,
     QStatusBar,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
 from localization_workflow.application.projects import ProjectService
+from localization_workflow.application.transcription import TranscriptionService
 from localization_workflow.core.paths import AppPaths
-from localization_workflow.domain.projects import AudioStatus, Project, ProjectStatus
+from localization_workflow.domain.projects import (
+    AudioStatus,
+    Project,
+    ProjectStatus,
+    TranscriptionStatus,
+)
 from localization_workflow.infrastructure.media import SUPPORTED_MEDIA_EXTENSIONS
 from localization_workflow.ui.media_player import MediaPlayerWidget, format_milliseconds
 
@@ -77,16 +85,49 @@ class AudioWorker(QThread):
             self.failed.emit(str(error))
 
 
+class TranscriptionWorker(QThread):
+    """Run local Whisper transcription without blocking the Qt UI thread."""
+
+    completed = Signal(object)
+    failed = Signal(str)
+    progress_changed = Signal(int)
+
+    def __init__(self, service: TranscriptionService, project_id: str) -> None:
+        super().__init__()
+        self._service = service
+        self._project_id = project_id
+        self._cancel = Event()
+
+    def cancel(self) -> None:
+        self._cancel.set()
+
+    def run(self) -> None:
+        try:
+            project = self._service.transcribe(
+                self._project_id, self.progress_changed.emit, self._cancel
+            )
+            self.completed.emit(project)
+        except Exception as error:
+            self.failed.emit(str(error))
+
+
 class MainWindow(QMainWindow):
     """Desktop project library and media workspace."""
 
-    def __init__(self, paths: AppPaths, projects: ProjectService) -> None:
+    def __init__(
+        self,
+        paths: AppPaths,
+        projects: ProjectService,
+        transcription: TranscriptionService,
+    ) -> None:
         super().__init__()
         self._paths = paths
         self._projects = projects
+        self._transcription = transcription
         self._current_project: Project | None = None
         self._import_worker: ImportWorker | None = None
         self._audio_worker: AudioWorker | None = None
+        self._transcription_worker: TranscriptionWorker | None = None
         self.setWindowTitle("Localization Workflow")
         self.setMinimumSize(1024, 700)
         self.resize(1280, 820)
@@ -184,10 +225,41 @@ class MainWindow(QMainWindow):
         audio_controls.addWidget(self._audio_progress, 1)
         audio_controls.addWidget(self._audio_status)
 
+        transcription_controls = QHBoxLayout()
+        self._transcribe_button = QPushButton("Transcribe with Whisper")
+        self._transcribe_button.clicked.connect(self._transcribe)
+        self._cancel_transcription_button = QPushButton("Cancel")
+        self._cancel_transcription_button.clicked.connect(self._cancel_transcription)
+        self._cancel_transcription_button.setVisible(False)
+        self._transcription_progress = QProgressBar()
+        self._transcription_progress.setRange(0, 100)
+        self._transcription_progress.setVisible(False)
+        self._transcription_status = QLabel("Not transcribed")
+        transcription_controls.addWidget(self._transcribe_button)
+        transcription_controls.addWidget(self._cancel_transcription_button)
+        transcription_controls.addWidget(self._transcription_progress, 1)
+        transcription_controls.addWidget(self._transcription_status)
+
+        model_controls = QHBoxLayout()
+        self._model_label = QLabel(f"Whisper model: {self._transcription.model_name}")
+        self._model_label.setStyleSheet("color: #5f6368;")
+        self._import_model_button = QPushButton("Select existing model")
+        self._import_model_button.clicked.connect(self._choose_model)
+        model_controls.addWidget(self._model_label, 1)
+        model_controls.addWidget(self._import_model_button)
+        self._transcript_table = QTableWidget(0, 2)
+        self._transcript_table.setHorizontalHeaderLabels(("Time", "Source transcript"))
+        self._transcript_table.horizontalHeader().setStretchLastSection(True)
+        self._transcript_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._transcript_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+
         layout.addLayout(top)
         layout.addWidget(self._media_details)
         layout.addWidget(self._player, 1)
         layout.addLayout(audio_controls)
+        layout.addLayout(model_controls)
+        layout.addLayout(transcription_controls)
+        layout.addWidget(self._transcript_table, 1)
         return page
 
     def _build_status_bar(self) -> None:
@@ -235,6 +307,7 @@ class MainWindow(QMainWindow):
         self._current_project = project
         self._project_heading.setText(project.name)
         self._update_media_display(project)
+        self._update_transcription_display(project)
         self._pages.setCurrentWidget(self._workspace_page)
 
     def _show_library(self) -> None:
@@ -296,6 +369,7 @@ class MainWindow(QMainWindow):
             return
         self._current_project = value
         self._update_media_display(value)
+        self._update_transcription_display(value)
         self.statusBar().showMessage("Media imported successfully.", 5000)
 
     def _on_import_failed(self, message: str) -> None:
@@ -337,6 +411,7 @@ class MainWindow(QMainWindow):
         if isinstance(value, Project):
             self._current_project = value
             self._update_audio_display(value)
+            self._update_transcription_display(value)
             self.statusBar().showMessage("Transcription audio is ready.", 5000)
 
     def _on_audio_failed(self, message: str) -> None:
@@ -355,12 +430,86 @@ class MainWindow(QMainWindow):
             self._audio_worker.deleteLater()
         self._audio_worker = None
 
+    def _transcribe(self) -> None:
+        if self._current_project is None or self._transcription_worker is not None:
+            return
+        if self._current_project.audio_status != AudioStatus.READY:
+            QMessageBox.information(self, "Transcribe", "Prepare transcription audio first.")
+            return
+        if self._current_project.source_language.casefold() == "auto-detect":
+            QMessageBox.information(
+                self,
+                "Choose source language",
+                "Const-me/Whisper requires the spoken source language. Create this project "
+                "with an explicit language before transcribing.",
+            )
+            return
+        worker = TranscriptionWorker(self._transcription, self._current_project.id)
+        worker.progress_changed.connect(self._transcription_progress.setValue)
+        worker.completed.connect(self._on_transcription_completed)
+        worker.failed.connect(self._on_transcription_failed)
+        worker.finished.connect(self._on_transcription_finished)
+        self._transcription_worker = worker
+        self._transcribe_button.setEnabled(False)
+        self._cancel_transcription_button.setVisible(True)
+        self._transcription_progress.setValue(0)
+        self._transcription_progress.setVisible(True)
+        self._transcription_status.setText("Transcribing locally…")
+        worker.start()
+
+    def _choose_model(self) -> None:
+        filename, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select existing Whisper model",
+            "",
+            "Whisper models (*.bin);;All files (*)",
+        )
+        if not filename:
+            return
+        try:
+            selected = self._transcription.select_model(Path(filename))
+        except Exception as error:
+            QMessageBox.critical(self, "Model selection failed", str(error))
+            self.statusBar().showMessage("Whisper model selection failed.", 5000)
+            return
+        self._model_label.setText(f"Whisper model: {self._transcription.model_name}")
+        self.statusBar().showMessage(f"Whisper model selected: {selected.name}", 5000)
+
+    def _cancel_transcription(self) -> None:
+        if self._transcription_worker:
+            self._cancel_transcription_button.setEnabled(False)
+            self._transcription_status.setText("Cancelling…")
+            self._transcription_worker.cancel()
+
+    def _on_transcription_completed(self, value: object) -> None:
+        if isinstance(value, Project):
+            self._current_project = value
+            self._update_transcription_display(value)
+            self.statusBar().showMessage("Local transcription completed.", 5000)
+
+    def _on_transcription_failed(self, message: str) -> None:
+        if self._current_project:
+            self._current_project = self._projects.get(self._current_project.id)
+            self._update_transcription_display(self._current_project)
+        if "cancel" not in message.lower():
+            QMessageBox.critical(self, "Transcription failed", message)
+
+    def _on_transcription_finished(self) -> None:
+        self._transcribe_button.setEnabled(True)
+        self._cancel_transcription_button.setEnabled(True)
+        self._cancel_transcription_button.setVisible(False)
+        self._transcription_progress.setVisible(False)
+        if self._transcription_worker:
+            self._transcription_worker.deleteLater()
+        self._transcription_worker = None
+
     def _update_media_display(self, project: Project) -> None:
         if not project.media_path:
             self._media_details.setText("No media imported yet.")
             self._player.load(None)
             self._prepare_audio_button.setEnabled(False)
             self._update_audio_display(project)
+            self._update_transcription_display(project)
             return
         self._prepare_audio_button.setEnabled(True)
         resolution = (
@@ -373,6 +522,7 @@ class MainWindow(QMainWindow):
         )
         self._player.load(project.media_path)
         self._update_audio_display(project)
+        self._update_transcription_display(project)
 
     def _update_audio_display(self, project: Project) -> None:
         labels = {
@@ -382,6 +532,26 @@ class MainWindow(QMainWindow):
             AudioStatus.FAILED: f"Audio failed: {project.audio_error or 'Unknown error'}",
         }
         self._audio_status.setText(labels[project.audio_status])
+
+    def _update_transcription_display(self, project: Project) -> None:
+        labels = {
+            TranscriptionStatus.NOT_STARTED: "Not transcribed",
+            TranscriptionStatus.PROCESSING: "Transcription interrupted",
+            TranscriptionStatus.READY: f"Transcript ready · {project.transcription_model}",
+            TranscriptionStatus.FAILED: (
+                f"Transcription failed: {project.transcription_error or 'Unknown error'}"
+            ),
+        }
+        self._transcription_status.setText(labels[project.transcription_status])
+        self._transcribe_button.setEnabled(project.audio_status == AudioStatus.READY)
+        segments = self._transcription.list_segments(project.id)
+        self._transcript_table.setRowCount(len(segments))
+        for row, segment in enumerate(segments):
+            timing = (
+                f"{format_milliseconds(segment.start_ms)} - {format_milliseconds(segment.end_ms)}"
+            )
+            self._transcript_table.setItem(row, 0, QTableWidgetItem(timing))
+            self._transcript_table.setItem(row, 1, QTableWidgetItem(segment.text))
 
     def _show_about(self) -> None:
         QMessageBox.about(

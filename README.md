@@ -12,7 +12,7 @@ The first usable release will import a video, extract audio, create a timestampe
 - PySide6 (Qt) for the native desktop interface
 - SQLAlchemy and Alembic for SQLite persistence
 - FFmpeg/FFprobe for media processing
-- OpenAI speech-to-text behind a provider interface
+- Const-me/Whisper local speech-to-text behind a provider interface
 - Pluggable translation providers
 
 The project deliberately uses mature open-source libraries instead of rebuilding desktop, database, and media foundations.
@@ -29,8 +29,11 @@ The project deliberately uses mature open-source libraries instead of rebuilding
    python -m pip install -e ".[dev]"
    ```
 
-5. Copy `.env.example` to `.env` and add API credentials when provider work begins.
-6. Run the desktop application:
+5. Download `cli.zip` from the official Const-me/Whisper GitHub release and extract it.
+6. Download a multilingual `ggml-*.bin` model from the official whisper.cpp model collection.
+7. Copy `.env.example` to `.env`, then set `WHISPER_CLI_PATH` to `main.exe` and
+   `WHISPER_MODEL_PATH` to the model file.
+8. Run the desktop application:
 
    ```powershell
    python -m localization_workflow
@@ -60,7 +63,17 @@ Copy `.env.example` to `.env`, configure the data directory and FFprobe path, th
 .\.venv\Scripts\python.exe -m localization_workflow
 ```
 
+## Local transcription requirements
+
+- 64-bit Windows with a Direct3D 11-capable GPU
+- CPU support for AVX1 and F16C
+- An explicit source language on each project
+
+The application invokes the unmodified official Const-me/Whisper CLI in a background worker.
+The separate WhisperDesktop interface is not launched or required.
+
 ## Status
 
-Milestone 1 provides persistent projects, managed video/audio import, FFprobe metadata,
-and embedded Qt playback. Transcription begins in a later milestone.
+Milestones 1 and 2 provide persistent projects, managed media import and playback, and
+canonical mono 16 kHz transcription audio. Milestone 3 integrates local Const-me/Whisper
+transcription with timestamped segment persistence.

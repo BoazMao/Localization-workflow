@@ -8,13 +8,18 @@ from pathlib import Path
 from threading import Event
 from uuid import uuid4
 
-from localization_workflow.domain.projects import AudioStatus, Project, ProjectStatus
+from localization_workflow.domain.projects import (
+    AudioStatus,
+    Project,
+    ProjectStatus,
+    TranscriptionStatus,
+)
 from localization_workflow.infrastructure.audio import (
     AudioPreparationCancelled,
     AudioProcessorProtocol,
     ProgressCallback,
 )
-from localization_workflow.infrastructure.database import ProjectRepository
+from localization_workflow.infrastructure.database import ProjectRepository, TranscriptRepository
 from localization_workflow.infrastructure.media import ManagedMediaStore
 
 
@@ -30,10 +35,12 @@ class ProjectService:
         repository: ProjectRepository,
         media_store: ManagedMediaStore,
         audio_processor: AudioProcessorProtocol,
+        transcripts: TranscriptRepository,
     ) -> None:
         self._repository = repository
         self._media_store = media_store
         self._audio_processor = audio_processor
+        self._transcripts = transcripts
 
     def create(self, name: str, source_language: str = "Auto-detect") -> Project:
         clean_name = name.strip()
@@ -87,9 +94,13 @@ class ProjectService:
             derived_audio_path=None,
             derived_audio_duration_ms=None,
             audio_error=None,
+            transcription_status=TranscriptionStatus.NOT_STARTED,
+            transcription_model=None,
+            transcription_error=None,
             updated_at=datetime.now(UTC),
         )
         self._repository.update(updated)
+        self._transcripts.delete(project.id)
         if project.media_path and project.media_path != destination:
             project.media_path.unlink(missing_ok=True)
         if project.derived_audio_path:
@@ -158,4 +169,5 @@ class ProjectService:
     def delete(self, project_id: str) -> None:
         self.get(project_id)
         self._repository.delete(project_id)
+        self._transcripts.delete(project_id)
         self._media_store.delete_project_media(project_id)

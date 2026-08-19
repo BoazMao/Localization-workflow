@@ -24,6 +24,15 @@ class AudioStatus(StrEnum):
     FAILED = "failed"
 
 
+class TranscriptionStatus(StrEnum):
+    """Current source-transcription state."""
+
+    NOT_STARTED = "not_started"
+    PROCESSING = "processing"
+    READY = "ready"
+    FAILED = "failed"
+
+
 @dataclass(frozen=True, slots=True)
 class MediaInfo:
     """Normalized metadata returned by a media probe."""
@@ -58,3 +67,19 @@ class Project:
     derived_audio_path: Path | None = None
     derived_audio_duration_ms: int | None = None
     audio_error: str | None = None
+    transcription_status: TranscriptionStatus = TranscriptionStatus.NOT_STARTED
+    transcription_model: str | None = None
+    transcription_error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class TranscriptSegment:
+    """Stable, timestamped source-text segment."""
+
+    id: str
+    project_id: str
+    position: int
+    start_ms: int
+    end_ms: int
+    text: str
+    source_revision: int = 1
