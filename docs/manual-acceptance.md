@@ -5,8 +5,8 @@ Use a representative 5–15 minute video and a non-production API key with a spe
 ## Clean-machine setup
 
 - [ ] Extract the complete portable release folder on 64-bit Windows.
-- [ ] Create `.env` from `.env.example` and configure existing FFmpeg, FFprobe, Const-me CLI, and
-      Whisper model paths.
+- [ ] Launch without `.env`; confirm FFmpeg and FFprobe are detected or can be selected through the
+      setup dialog and that the saved paths are reused on the next launch.
 - [ ] Launch by double-clicking the executable without Python or a terminal.
 - [ ] Confirm no terminal window appears and startup errors use a visible dialog.
 

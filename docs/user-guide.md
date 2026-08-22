@@ -5,11 +5,13 @@
 1. Copy the entire `Localization Workflow` release folder to a writable location such as
    `F:\Apps\Localization Workflow`. Do not copy only the `.exe`; its `_internal` folder is
    required.
-2. Copy `.env.example` to `.env` in the same folder as `Localization Workflow.exe`.
-3. Edit `.env` and set `LOCALIZATION_WORKFLOW_DATA_DIR`, `FFMPEG_PATH`, `FFPROBE_PATH`,
-   `WHISPER_CLI_PATH`, and `WHISPER_MODEL_PATH` to existing locations on the PC.
-4. Double-click `Localization Workflow.exe`.
-5. Open **Settings → AI model API settings** to enter or change translation API details.
+2. Double-click `Localization Workflow.exe`. The app automatically detects FFmpeg and FFprobe.
+   If either tool is unavailable, select its `.exe` in the setup dialog; the companion tool in the
+   same folder is filled automatically. Validated paths are saved for future launches.
+3. Open **Settings → AI model API settings** to enter or change translation API details.
+
+Manual `.env` editing is not required for FFmpeg or FFprobe. Advanced users may still create one
+from `.env.example` to override the default data directory or configure other external tools.
 
 The Whisper model remains external. Selecting an existing model records its path and does not
 duplicate the model file.
@@ -41,8 +43,8 @@ contains the API key.
 
 ## Troubleshooting
 
-- **The app does not open:** verify `.env` is beside the executable and that `FFMPEG_PATH` points
-  to `ffmpeg.exe`. Startup failures now appear in a dialog with the failing setting.
+- **Media-tool setup appears:** choose `ffmpeg.exe` or `ffprobe.exe`. The app detects the other tool
+  in the same folder, validates both, and saves their paths automatically.
 - **Media import fails:** verify `FFPROBE_PATH`, file access, and free space in the data directory.
 - **Prepare audio fails:** verify `FFMPEG_PATH` and that the selected media has an audio stream.
 - **Transcribe stays unavailable:** prepare audio, choose a source language, and select an existing

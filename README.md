@@ -57,8 +57,9 @@ The project uses PyInstaller rather than maintaining a custom application bundle
 ```
 
 The complete portable package is written to `dist\Localization Workflow`. Keep the executable
-and `_internal` folder together. Copy `.env.example` to `.env` beside the executable before the
-first launch. See `docs/user-guide.md` for configuration, backups, and troubleshooting and
+and `_internal` folder together. On first launch the app detects FFmpeg and FFprobe or prompts for
+their locations, then saves the configuration automatically. See `docs/user-guide.md` for
+configuration, backups, and troubleshooting and
 `docs/manual-acceptance.md` for the final release checklist.
 
 ## Local Windows environment
@@ -70,7 +71,8 @@ The current development checkout uses:
 - runtime data: `F:\Localization-workflow-data`
 - FFmpeg: `F:\Tools\FFmpeg`
 
-Copy `.env.example` to `.env`, configure the data directory and FFprobe path, then run:
+The app detects FFmpeg and FFprobe on launch. Advanced local overrides can still be placed in
+`.env`, then the app can be run with:
 
 ```powershell
 .\.venv\Scripts\python.exe -m localization_workflow
