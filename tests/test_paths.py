@@ -26,6 +26,7 @@ def test_ensure_directories_creates_owned_folders(tmp_path: Path) -> None:
         models=tmp_path / "models",
         tools=tmp_path / "tools",
         database=tmp_path / "app.sqlite3",
+        translation_agents=tmp_path / "AGENTS.md",
     )
 
     paths.ensure_directories()

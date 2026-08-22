@@ -20,14 +20,23 @@ class GlossaryService:
 
     def set_target_language(self, project_id: str, language: str) -> Project:
         clean_language = language.strip()
-        if not clean_language:
-            raise ValueError("Target language is required.")
+        if clean_language not in {"English", "Simplified Chinese"}:
+            raise ValueError("Target language must be English or Simplified Chinese.")
         project = self._require_project(project_id)
         updated = replace(
             project,
             target_language=clean_language,
             updated_at=datetime.now(UTC),
         )
+        self._projects.update(updated)
+        return updated
+
+    def read_wordbank(self, project_id: str) -> str:
+        return self._require_project(project_id).wordbank
+
+    def save_wordbank(self, project_id: str, text: str) -> Project:
+        project = self._require_project(project_id)
+        updated = replace(project, wordbank=text.strip(), updated_at=datetime.now(UTC))
         self._projects.update(updated)
         return updated
 

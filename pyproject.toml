@@ -12,6 +12,7 @@ license = { text = "MIT" }
 authors = [{ name = "Boaz Mao" }]
 dependencies = [
   "alembic>=1.14,<2",
+  "openai>=2.0,<3",
   "platformdirs>=4.3,<5",
   "pydantic>=2.10,<3",
   "pydantic-settings>=2.7,<3",

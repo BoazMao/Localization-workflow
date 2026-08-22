@@ -17,8 +17,10 @@ from localization_workflow.domain.projects import (
     GlossaryEntry,
     Project,
     ProjectStatus,
+    SegmentTranslation,
     TranscriptionStatus,
     TranscriptSegment,
+    TranslationStatus,
 )
 
 
@@ -53,6 +55,7 @@ class ProjectRecord(Base):
     transcription_model: Mapped[str | None] = mapped_column(String(500))
     transcription_error: Mapped[str | None] = mapped_column(String(1000))
     target_language: Mapped[str | None] = mapped_column(String(100))
+    wordbank: Mapped[str] = mapped_column(Text, nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
@@ -85,6 +88,27 @@ class GlossaryEntryRecord(Base):
     source_term: Mapped[str] = mapped_column(String(500), nullable=False)
     source_term_key: Mapped[str] = mapped_column(String(500), nullable=False)
     target_term: Mapped[str] = mapped_column(String(500), nullable=False)
+
+
+class SegmentTranslationRecord(Base):
+    """Database representation of a generated segment translation."""
+
+    __tablename__ = "segment_translations"
+
+    segment_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("transcript_segments.id", ondelete="CASCADE"), primary_key=True
+    )
+    project_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    target_language: Mapped[str] = mapped_column(String(100), nullable=False)
+    text: Mapped[str | None] = mapped_column(Text)
+    source_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(30), nullable=False)
+    provider: Mapped[str] = mapped_column(String(100), nullable=False)
+    model: Mapped[str] = mapped_column(String(200), nullable=False)
+    error: Mapped[str | None] = mapped_column(String(2000))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class Database:
@@ -175,6 +199,7 @@ class ProjectRepository:
             transcription_model=project.transcription_model,
             transcription_error=project.transcription_error,
             target_language=project.target_language,
+            wordbank=project.wordbank,
             created_at=project.created_at,
             updated_at=project.updated_at,
         )
@@ -216,6 +241,7 @@ class ProjectRepository:
             transcription_model=record.transcription_model,
             transcription_error=record.transcription_error,
             target_language=record.target_language,
+            wordbank=record.wordbank,
         )
 
 
@@ -362,4 +388,57 @@ class GlossaryRepository:
             project_id=record.project_id,
             source_term=record.source_term,
             target_term=record.target_term,
+        )
+
+
+class TranslationRepository:
+    """Persist one current translation per source segment."""
+
+    def __init__(self, database: Database) -> None:
+        self._database = database
+
+    def list_for_project(self, project_id: str) -> list[SegmentTranslation]:
+        with self._database.session() as session:
+            records = session.scalars(
+                select(SegmentTranslationRecord).where(
+                    SegmentTranslationRecord.project_id == project_id
+                )
+            ).all()
+            return [self._to_domain(record) for record in records]
+
+    def upsert(self, translation: SegmentTranslation) -> None:
+        with self._database.session() as session:
+            session.merge(
+                SegmentTranslationRecord(
+                    segment_id=translation.segment_id,
+                    project_id=translation.project_id,
+                    target_language=translation.target_language,
+                    text=translation.text,
+                    source_revision=translation.source_revision,
+                    status=translation.status.value,
+                    provider=translation.provider,
+                    model=translation.model,
+                    error=translation.error,
+                    updated_at=translation.updated_at,
+                )
+            )
+
+    @staticmethod
+    def _to_domain(record: SegmentTranslationRecord) -> SegmentTranslation:
+        updated_at = (
+            record.updated_at.replace(tzinfo=UTC)
+            if not record.updated_at.tzinfo
+            else record.updated_at
+        )
+        return SegmentTranslation(
+            segment_id=record.segment_id,
+            project_id=record.project_id,
+            target_language=record.target_language,
+            text=record.text,
+            source_revision=record.source_revision,
+            status=TranslationStatus(record.status),
+            provider=record.provider,
+            model=record.model,
+            error=record.error,
+            updated_at=updated_at,
         )

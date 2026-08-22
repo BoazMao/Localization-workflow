@@ -33,13 +33,26 @@ def test_target_language_and_glossary_survive_reopen(tmp_path: Path) -> None:
     projects, glossary = make_services(tmp_path)
     project = projects.create("Terminology", "English")
 
-    updated = glossary.set_target_language(project.id, "Spanish")
+    updated = glossary.set_target_language(project.id, "Simplified Chinese")
     entry = glossary.add_entry(project.id, "drop ship", "nave de desembarco")
     _projects_reopened, glossary_reopened = make_services(tmp_path)
 
-    assert updated.target_language == "Spanish"
-    assert projects.get(project.id).target_language == "Spanish"
+    assert updated.target_language == "Simplified Chinese"
+    assert projects.get(project.id).target_language == "Simplified Chinese"
     assert glossary_reopened.list_entries(project.id) == [entry]
+
+
+def test_freeform_wordbank_accepts_natural_language_and_survives_reopen(
+    tmp_path: Path,
+) -> None:
+    projects, glossary = make_services(tmp_path)
+    project = projects.create("Natural wordbank", "Chinese")
+    text = "1. 转点: Rotate\n2. 推进/前压: Push\nUse these naturally for gameplay calls."
+
+    glossary.save_wordbank(project.id, text)
+    _projects_reopened, glossary_reopened = make_services(tmp_path)
+
+    assert glossary_reopened.read_wordbank(project.id) == text
 
 
 def test_duplicate_source_term_is_case_insensitive(tmp_path: Path) -> None:
@@ -49,6 +62,14 @@ def test_duplicate_source_term_is_case_insensitive(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="already exists"):
         glossary.add_entry(project.id, "apex", "Cumbre")
+
+
+def test_target_language_rejects_unsupported_options(tmp_path: Path) -> None:
+    projects, glossary = make_services(tmp_path)
+    project = projects.create("Languages", "English")
+
+    with pytest.raises(ValueError, match="English or Simplified Chinese"):
+        glossary.set_target_language(project.id, "Spanish")
 
 
 def test_matching_uses_whole_terms_and_longest_first(tmp_path: Path) -> None:
