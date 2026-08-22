@@ -24,10 +24,12 @@ from PySide6.QtWidgets import (
     QStatusBar,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
+from localization_workflow.application.glossary import GlossaryService
 from localization_workflow.application.projects import ProjectService
 from localization_workflow.application.transcription import TranscriptionService
 from localization_workflow.core.paths import AppPaths
@@ -121,11 +123,13 @@ class MainWindow(QMainWindow):
         paths: AppPaths,
         projects: ProjectService,
         transcription: TranscriptionService,
+        glossary: GlossaryService,
     ) -> None:
         super().__init__()
         self._paths = paths
         self._projects = projects
         self._transcription = transcription
+        self._glossary = glossary
         self._current_project: Project | None = None
         self._import_worker: ImportWorker | None = None
         self._audio_worker: AudioWorker | None = None
@@ -250,12 +254,15 @@ class MainWindow(QMainWindow):
         self._import_model_button.clicked.connect(self._choose_model)
         model_controls.addWidget(self._model_label, 1)
         model_controls.addWidget(self._import_model_button)
-        self._transcript_table = QTableWidget(0, 3)
-        self._transcript_table.setHorizontalHeaderLabels(("Time", "Source transcript", "Rev"))
+        self._transcript_table = QTableWidget(0, 4)
+        self._transcript_table.setHorizontalHeaderLabels(
+            ("Time", "Source transcript", "Glossary constraints", "Rev")
+        )
         header = self._transcript_table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         self._transcript_table.setEditTriggers(
             QAbstractItemView.EditTrigger.DoubleClicked
             | QAbstractItemView.EditTrigger.EditKeyPressed
@@ -274,14 +281,53 @@ class MainWindow(QMainWindow):
         review_controls.addWidget(self._save_status)
         review_controls.addStretch()
 
+        transcript_page = QWidget()
+        transcript_layout = QVBoxLayout(transcript_page)
+        transcript_layout.setContentsMargins(0, 8, 0, 0)
+        transcript_layout.addLayout(review_controls)
+        transcript_layout.addWidget(self._transcript_table)
+
+        glossary_page = QWidget()
+        glossary_layout = QVBoxLayout(glossary_page)
+        glossary_layout.setContentsMargins(0, 8, 0, 0)
+        target_controls = QHBoxLayout()
+        self._target_language_label = QLabel("Target language: Not set")
+        set_target_button = QPushButton("Set target language")
+        set_target_button.clicked.connect(self._set_target_language)
+        target_controls.addWidget(self._target_language_label)
+        target_controls.addWidget(set_target_button)
+        target_controls.addStretch()
+        self._glossary_table = QTableWidget(0, 2)
+        self._glossary_table.setHorizontalHeaderLabels(("Source term", "Required translation"))
+        self._glossary_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self._glossary_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self._glossary_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        glossary_buttons = QHBoxLayout()
+        add_term_button = QPushButton("Add term")
+        add_term_button.clicked.connect(self._add_glossary_entry)
+        edit_term_button = QPushButton("Edit selected")
+        edit_term_button.clicked.connect(self._edit_glossary_entry)
+        delete_term_button = QPushButton("Delete selected")
+        delete_term_button.clicked.connect(self._delete_glossary_entry)
+        glossary_buttons.addWidget(add_term_button)
+        glossary_buttons.addWidget(edit_term_button)
+        glossary_buttons.addWidget(delete_term_button)
+        glossary_buttons.addStretch()
+        glossary_layout.addLayout(target_controls)
+        glossary_layout.addWidget(self._glossary_table, 1)
+        glossary_layout.addLayout(glossary_buttons)
+
+        workspace_tabs = QTabWidget()
+        workspace_tabs.addTab(transcript_page, "Transcript")
+        workspace_tabs.addTab(glossary_page, "Glossary")
+
         layout.addLayout(top)
         layout.addWidget(self._media_details)
         layout.addWidget(self._player, 1)
         layout.addLayout(audio_controls)
         layout.addLayout(model_controls)
         layout.addLayout(transcription_controls)
-        layout.addLayout(review_controls)
-        layout.addWidget(self._transcript_table, 1)
+        layout.addWidget(workspace_tabs, 1)
         return page
 
     def _build_status_bar(self) -> None:
@@ -330,6 +376,7 @@ class MainWindow(QMainWindow):
         self._project_heading.setText(project.name)
         self._update_media_display(project)
         self._update_transcription_display(project)
+        self._refresh_glossary(project)
         self._pages.setCurrentWidget(self._workspace_page)
 
     def _show_library(self) -> None:
@@ -577,6 +624,11 @@ class MainWindow(QMainWindow):
 
     def _populate_transcript(self, segments: list[TranscriptSegment]) -> None:
         blocker = QSignalBlocker(self._transcript_table)
+        matches = (
+            self._glossary.matches_for_segments(self._current_project.id, segments)
+            if self._current_project is not None
+            else {}
+        )
         self._transcript_table.setRowCount(len(segments))
         for row, segment in enumerate(segments):
             timing = (
@@ -587,11 +639,18 @@ class MainWindow(QMainWindow):
             timing_item.setFlags(timing_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             text_item = QTableWidgetItem(segment.text)
             text_item.setData(Qt.ItemDataRole.UserRole, segment.id)
+            constraints = "; ".join(
+                f"{entry.source_term} → {entry.target_term}"
+                for entry in matches.get(segment.id, [])
+            )
+            glossary_item = QTableWidgetItem(constraints)
+            glossary_item.setFlags(glossary_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             revision_item = QTableWidgetItem(str(segment.source_revision))
             revision_item.setFlags(revision_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self._transcript_table.setItem(row, 0, timing_item)
             self._transcript_table.setItem(row, 1, text_item)
-            self._transcript_table.setItem(row, 2, revision_item)
+            self._transcript_table.setItem(row, 2, glossary_item)
+            self._transcript_table.setItem(row, 3, revision_item)
         del blocker
         self._dirty_segments.clear()
         self._save_transcript_button.setEnabled(False)
@@ -648,6 +707,111 @@ class MainWindow(QMainWindow):
             self._dirty_segments.clear()
             return True
         return False
+
+    def _refresh_glossary(self, project: Project) -> None:
+        self._target_language_label.setText(
+            f"Target language: {project.target_language or 'Not set'}"
+        )
+        entries = self._glossary.list_entries(project.id)
+        self._glossary_table.setRowCount(len(entries))
+        for row, entry in enumerate(entries):
+            source_item = QTableWidgetItem(entry.source_term)
+            source_item.setData(Qt.ItemDataRole.UserRole, entry.id)
+            self._glossary_table.setItem(row, 0, source_item)
+            self._glossary_table.setItem(row, 1, QTableWidgetItem(entry.target_term))
+
+    def _set_target_language(self) -> None:
+        if self._current_project is None:
+            return
+        language, accepted = QInputDialog.getText(
+            self,
+            "Target language",
+            "Translate into",
+            text=self._current_project.target_language or "",
+        )
+        if not accepted:
+            return
+        try:
+            updated = self._glossary.set_target_language(self._current_project.id, language)
+        except ValueError as error:
+            QMessageBox.warning(self, "Invalid target language", str(error))
+            return
+        self._current_project = updated
+        self._refresh_glossary(updated)
+
+    def _prompt_glossary_terms(
+        self, source_term: str = "", target_term: str = ""
+    ) -> tuple[str, str] | None:
+        source, accepted = QInputDialog.getText(
+            self, "Glossary source term", "Source term", text=source_term
+        )
+        if not accepted:
+            return None
+        target, accepted = QInputDialog.getText(
+            self, "Required translation", "Required translation", text=target_term
+        )
+        return (source, target) if accepted else None
+
+    def _add_glossary_entry(self) -> None:
+        if self._current_project is None:
+            return
+        values = self._prompt_glossary_terms()
+        if values is None:
+            return
+        try:
+            self._glossary.add_entry(self._current_project.id, *values)
+        except ValueError as error:
+            QMessageBox.warning(self, "Could not add glossary term", str(error))
+            return
+        self._refresh_glossary(self._current_project)
+        self._update_transcription_display(self._current_project)
+
+    def _selected_glossary_entry(self) -> tuple[str, str, str] | None:
+        row = self._glossary_table.currentRow()
+        if row < 0:
+            return None
+        source_item = self._glossary_table.item(row, 0)
+        target_item = self._glossary_table.item(row, 1)
+        if source_item is None or target_item is None:
+            return None
+        entry_id = source_item.data(Qt.ItemDataRole.UserRole)
+        return str(entry_id), source_item.text(), target_item.text()
+
+    def _edit_glossary_entry(self) -> None:
+        if self._current_project is None:
+            return
+        selected = self._selected_glossary_entry()
+        if selected is None:
+            return
+        entry_id, source, target = selected
+        values = self._prompt_glossary_terms(source, target)
+        if values is None:
+            return
+        try:
+            self._glossary.update_entry(self._current_project.id, entry_id, *values)
+        except (LookupError, ValueError) as error:
+            QMessageBox.warning(self, "Could not update glossary term", str(error))
+            return
+        self._refresh_glossary(self._current_project)
+        self._update_transcription_display(self._current_project)
+
+    def _delete_glossary_entry(self) -> None:
+        if self._current_project is None:
+            return
+        selected = self._selected_glossary_entry()
+        if selected is None:
+            return
+        entry_id, source, _target = selected
+        choice = QMessageBox.question(self, "Delete glossary term", f'Delete "{source}"?')
+        if choice != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            self._glossary.delete_entry(self._current_project.id, entry_id)
+        except LookupError as error:
+            QMessageBox.warning(self, "Could not delete glossary term", str(error))
+            return
+        self._refresh_glossary(self._current_project)
+        self._update_transcription_display(self._current_project)
 
     def closeEvent(self, event: QCloseEvent) -> None:
         if self._confirm_discard_edits():

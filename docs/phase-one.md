@@ -57,6 +57,9 @@ IDs, revision increments, click-to-seek playback, and unsaved-change protection.
 
 Language-aware terminology entries, matching, constraints, and per-segment preview.
 
+Implemented locally on `agent/milestone-five` with persistent target languages, validated
+terminology CRUD, case-insensitive whole-term matching, and transcript constraint previews.
+
 ### 6 — Translation
 
 Provider abstraction, target language selection, bulk and single translation, persistence, regeneration, and partial retry.

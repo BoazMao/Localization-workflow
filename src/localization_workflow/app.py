@@ -7,6 +7,7 @@ from collections.abc import Sequence
 
 from PySide6.QtWidgets import QApplication
 
+from localization_workflow.application.glossary import GlossaryService
 from localization_workflow.application.projects import ProjectService
 from localization_workflow.application.transcription import TranscriptionService
 from localization_workflow.core.paths import AppPaths
@@ -14,6 +15,7 @@ from localization_workflow.core.settings import AppSettings
 from localization_workflow.infrastructure.audio import FFmpegAudioProcessor
 from localization_workflow.infrastructure.database import (
     Database,
+    GlossaryRepository,
     ProjectRepository,
     TranscriptRepository,
 )
@@ -50,6 +52,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     database.migrate()
     repository = ProjectRepository(database)
     transcripts = TranscriptRepository(database)
+    glossary_repository = GlossaryRepository(database)
     media_store = ManagedMediaStore(paths.media, FFprobeMediaProbe(settings.ffprobe_path))
     if settings.ffmpeg_path is None:
         msg = "FFMPEG_PATH must be configured before starting the application."
@@ -62,7 +65,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         settings.whisper_cli_path,
     )
     transcription = TranscriptionService(repository, transcripts, speech_provider, models)
+    glossary = GlossaryService(repository, glossary_repository)
 
-    window = MainWindow(paths=paths, projects=projects, transcription=transcription)
+    window = MainWindow(
+        paths=paths,
+        projects=projects,
+        transcription=transcription,
+        glossary=glossary,
+    )
     window.show()
     return app.exec()

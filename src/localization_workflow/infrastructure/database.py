@@ -14,6 +14,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sess
 
 from localization_workflow.domain.projects import (
     AudioStatus,
+    GlossaryEntry,
     Project,
     ProjectStatus,
     TranscriptionStatus,
@@ -51,6 +52,7 @@ class ProjectRecord(Base):
     )
     transcription_model: Mapped[str | None] = mapped_column(String(500))
     transcription_error: Mapped[str | None] = mapped_column(String(1000))
+    target_language: Mapped[str | None] = mapped_column(String(100))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
@@ -69,6 +71,20 @@ class TranscriptSegmentRecord(Base):
     end_ms: Mapped[int] = mapped_column(Integer, nullable=False)
     text: Mapped[str] = mapped_column(Text, nullable=False)
     source_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+
+
+class GlossaryEntryRecord(Base):
+    """Database representation of a project glossary entry."""
+
+    __tablename__ = "glossary_entries"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    source_term: Mapped[str] = mapped_column(String(500), nullable=False)
+    source_term_key: Mapped[str] = mapped_column(String(500), nullable=False)
+    target_term: Mapped[str] = mapped_column(String(500), nullable=False)
 
 
 class Database:
@@ -158,6 +174,7 @@ class ProjectRepository:
             transcription_status=project.transcription_status.value,
             transcription_model=project.transcription_model,
             transcription_error=project.transcription_error,
+            target_language=project.target_language,
             created_at=project.created_at,
             updated_at=project.updated_at,
         )
@@ -198,6 +215,7 @@ class ProjectRepository:
             transcription_status=TranscriptionStatus(record.transcription_status),
             transcription_model=record.transcription_model,
             transcription_error=record.transcription_error,
+            target_language=record.target_language,
         )
 
 
@@ -274,4 +292,74 @@ class TranscriptRepository:
             end_ms=record.end_ms,
             text=record.text,
             source_revision=record.source_revision,
+        )
+
+
+class GlossaryRepository:
+    """Persist project terminology constraints."""
+
+    def __init__(self, database: Database) -> None:
+        self._database = database
+
+    def list_for_project(self, project_id: str) -> list[GlossaryEntry]:
+        with self._database.session() as session:
+            records = session.scalars(
+                select(GlossaryEntryRecord)
+                .where(GlossaryEntryRecord.project_id == project_id)
+                .order_by(GlossaryEntryRecord.source_term_key)
+            ).all()
+            return [self._to_domain(record) for record in records]
+
+    def add(self, entry: GlossaryEntry) -> None:
+        with self._database.session() as session:
+            duplicate = session.scalar(
+                select(GlossaryEntryRecord).where(
+                    GlossaryEntryRecord.project_id == entry.project_id,
+                    GlossaryEntryRecord.source_term_key == entry.source_term.casefold(),
+                )
+            )
+            if duplicate is not None:
+                raise ValueError("That source term already exists in this glossary.")
+            session.add(
+                GlossaryEntryRecord(
+                    id=entry.id,
+                    project_id=entry.project_id,
+                    source_term=entry.source_term,
+                    source_term_key=entry.source_term.casefold(),
+                    target_term=entry.target_term,
+                )
+            )
+
+    def update(self, entry: GlossaryEntry) -> None:
+        with self._database.session() as session:
+            record = session.get(GlossaryEntryRecord, entry.id)
+            if record is None or record.project_id != entry.project_id:
+                raise LookupError(entry.id)
+            duplicate = session.scalar(
+                select(GlossaryEntryRecord).where(
+                    GlossaryEntryRecord.project_id == entry.project_id,
+                    GlossaryEntryRecord.source_term_key == entry.source_term.casefold(),
+                    GlossaryEntryRecord.id != entry.id,
+                )
+            )
+            if duplicate is not None:
+                raise ValueError("That source term already exists in this glossary.")
+            record.source_term = entry.source_term
+            record.source_term_key = entry.source_term.casefold()
+            record.target_term = entry.target_term
+
+    def delete(self, project_id: str, entry_id: str) -> None:
+        with self._database.session() as session:
+            record = session.get(GlossaryEntryRecord, entry_id)
+            if record is None or record.project_id != project_id:
+                raise LookupError(entry_id)
+            session.delete(record)
+
+    @staticmethod
+    def _to_domain(record: GlossaryEntryRecord) -> GlossaryEntry:
+        return GlossaryEntry(
+            id=record.id,
+            project_id=record.project_id,
+            source_term=record.source_term,
+            target_term=record.target_term,
         )
