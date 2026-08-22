@@ -1196,7 +1196,58 @@ class MainWindow(QMainWindow):
     def _export_translated_srt(self) -> None:
         if self._current_project is None:
             return
-        suggested = f"{self._current_project.name}-translated.srt"
+        readiness = self._translation.export_readiness(self._current_project.id)
+        if readiness.total == 0:
+            QMessageBox.information(
+                self, "Nothing to export", "This project has no transcript segments."
+            )
+            return
+        if readiness.usable_count == 0:
+            QMessageBox.warning(
+                self,
+                "Nothing ready to export",
+                "There are no approved, reviewed, or draft translations.\n\n"
+                f"Outdated: {readiness.outdated}\n"
+                f"Failed: {readiness.failed}\n"
+                f"Not translated: {readiness.missing}",
+            )
+            return
+        include_unapproved = False
+        if readiness.approved != readiness.total:
+            summary = (
+                f"Total segments: {readiness.total}\n"
+                f"Approved: {readiness.approved}\n"
+                f"Reviewed: {readiness.reviewed}\n"
+                f"Draft: {readiness.draft}\n"
+                f"Outdated: {readiness.outdated}\n"
+                f"Failed: {readiness.failed}\n"
+                f"Not translated: {readiness.missing}\n\n"
+                "Outdated, failed, and untranslated segments are always omitted."
+            )
+            choices: list[str] = []
+            if readiness.approved:
+                choices.append(f"Approved only ({readiness.approved})")
+            if readiness.reviewed or readiness.draft:
+                choices.append(
+                    "Include reviewed and draft "
+                    f"({readiness.usable_count}; explicit unapproved export)"
+                )
+            choice, accepted = QInputDialog.getItem(
+                self,
+                "Choose subtitle export",
+                summary,
+                choices,
+                0,
+                False,
+            )
+            if not accepted:
+                return
+            include_unapproved = choice.startswith("Include")
+        safe_name = "".join(
+            "_" if character in '<>:"/\\|?*' else character
+            for character in self._current_project.name
+        ).strip(" .")
+        suggested = f"{safe_name or 'subtitles'}-translated.srt"
         filename, _ = QFileDialog.getSaveFileName(
             self, "Export translated subtitles", suggested, "SubRip subtitles (*.srt)"
         )
@@ -1206,14 +1257,17 @@ class MainWindow(QMainWindow):
         if destination.suffix.casefold() != ".srt":
             destination = destination.with_suffix(".srt")
         try:
-            count = self._translation.export_srt(self._current_project.id, destination)
+            count = self._translation.export_srt(
+                self._current_project.id,
+                destination,
+                include_unapproved=include_unapproved,
+            )
         except Exception as error:
             QMessageBox.critical(self, "Could not export subtitles", str(error))
             return
-        total = len(self._transcription.list_segments(self._current_project.id))
         message = f"Exported {count} translated segment(s) to {destination}."
-        if count < total:
-            message += f" {total - count} untranslated or failed segment(s) were omitted."
+        if count < readiness.total:
+            message += f" {readiness.total - count} unavailable segment(s) were omitted."
         QMessageBox.information(self, "Subtitles exported", message)
 
     def _start_translation(self, segment_ids: set[str] | None, retry_failed: bool = False) -> None:

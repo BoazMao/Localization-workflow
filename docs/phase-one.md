@@ -75,6 +75,10 @@ and approval actions, state filters, and automatic source-revision invalidation.
 
 Validated timestamps, ordered cues, warnings for missing or outdated translations, and downloadable export.
 
+Implemented locally with export-readiness counts, approved-only and explicit draft-inclusive
+modes, chronological timestamp validation, safe filenames, atomic UTF-8 BOM output, and clear
+warnings for every omitted review state.
+
 ### 9 — Hardening
 
 End-to-end verification, failure recovery, secret review, packaging documentation, and demonstration project.

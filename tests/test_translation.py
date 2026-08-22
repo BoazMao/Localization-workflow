@@ -201,7 +201,7 @@ def test_only_approved_translations_are_exported(tmp_path: Path) -> None:
     service, _glossary, _provider, project, segments, _transcripts = make_service(tmp_path)
     service.translate(project.id, None, lambda _value: None, Event())
 
-    with pytest.raises(ValueError, match="no completed translations"):
+    with pytest.raises(ValueError, match="no approved translations"):
         service.export_srt(project.id, tmp_path / "drafts.srt")
 
     service.set_review_status(project.id, {segments[0].id}, TranslationStatus.APPROVED)
@@ -209,3 +209,102 @@ def test_only_approved_translations_are_exported(tmp_path: Path) -> None:
     assert service.export_srt(project.id, destination) == 1
     assert "Launch the drop ship" in destination.read_text(encoding="utf-8-sig")
     assert "Hold position" not in destination.read_text(encoding="utf-8-sig")
+
+
+def test_export_readiness_counts_every_segment_state(tmp_path: Path) -> None:
+    service, _glossary, _provider, project, segments, transcripts = make_service(tmp_path)
+    service.translate(project.id, None, lambda _value: None, Event())
+    service.set_review_status(project.id, {segments[0].id}, TranslationStatus.APPROVED)
+
+    initial = service.export_readiness(project.id)
+    assert initial.total == 2
+    assert initial.approved == 1
+    assert initial.draft == 1
+    assert initial.usable_count == 2
+    assert initial.omitted_count == 0
+
+    transcripts.update_texts(project.id, {segments[0].id: "Revised source."})
+    changed = service.export_readiness(project.id)
+    assert changed.approved == 0
+    assert changed.outdated == 1
+    assert changed.draft == 1
+    assert changed.omitted_count == 1
+
+
+def test_explicit_unapproved_export_includes_drafts_and_reviewed(tmp_path: Path) -> None:
+    service, _glossary, _provider, project, segments, _transcripts = make_service(tmp_path)
+    service.translate(project.id, None, lambda _value: None, Event())
+    service.set_review_status(project.id, {segments[0].id}, TranslationStatus.REVIEWED)
+    destination = tmp_path / "review-copy.srt"
+
+    count = service.export_srt(project.id, destination, include_unapproved=True)
+
+    assert count == 2
+    content = destination.read_bytes()
+    assert content.startswith(b"\xef\xbb\xbf")
+    decoded = content.decode("utf-8-sig")
+    assert decoded.endswith("\n")
+    assert "\n\n2\n00:00:01,000 --> 00:00:02,000\n" in decoded
+
+
+@pytest.mark.parametrize(
+    ("start_ms", "end_ms", "message"),
+    [
+        (-1, 1000, "cannot be negative"),
+        (1000, 1000, "end after it starts"),
+        (2000, 1000, "end after it starts"),
+    ],
+)
+def test_export_rejects_invalid_timestamps_without_overwriting_destination(
+    tmp_path: Path, start_ms: int, end_ms: int, message: str
+) -> None:
+    service, _glossary, _provider, project, segments, transcripts = make_service(tmp_path)
+    transcripts.replace(
+        project.id,
+        [
+            TranscriptSegment(
+                segments[0].id,
+                project.id,
+                0,
+                start_ms,
+                end_ms,
+                segments[0].text,
+            )
+        ],
+    )
+    service.translate(project.id, None, lambda _value: None, Event())
+    service.set_review_status(project.id, {segments[0].id}, TranslationStatus.APPROVED)
+    destination = tmp_path / "existing.srt"
+    destination.write_text("keep me", encoding="utf-8")
+
+    with pytest.raises(ValueError, match=message):
+        service.export_srt(project.id, destination)
+
+    assert destination.read_text(encoding="utf-8") == "keep me"
+
+
+def test_export_rejects_non_chronological_cues(tmp_path: Path) -> None:
+    service, _glossary, _provider, project, _segments, transcripts = make_service(tmp_path)
+    reordered = [
+        TranscriptSegment("late", project.id, 0, 2000, 3000, "Late"),
+        TranscriptSegment("early", project.id, 1, 0, 1000, "Early"),
+    ]
+    transcripts.replace(project.id, reordered)
+    service.translate(project.id, None, lambda _value: None, Event())
+    service.set_review_status(
+        project.id, {segment.id for segment in reordered}, TranslationStatus.APPROVED
+    )
+
+    with pytest.raises(ValueError, match="chronological order"):
+        service.export_srt(project.id, tmp_path / "unordered.srt")
+
+
+def test_export_requires_srt_extension_and_existing_folder(tmp_path: Path) -> None:
+    service, _glossary, _provider, project, segments, _transcripts = make_service(tmp_path)
+    service.translate(project.id, None, lambda _value: None, Event())
+    service.set_review_status(project.id, {segments[0].id}, TranslationStatus.APPROVED)
+
+    with pytest.raises(ValueError, match=r"end with \.srt"):
+        service.export_srt(project.id, tmp_path / "subtitles.txt")
+    with pytest.raises(ValueError, match="folder does not exist"):
+        service.export_srt(project.id, tmp_path / "missing" / "subtitles.srt")
