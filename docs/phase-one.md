@@ -83,6 +83,11 @@ warnings for every omitted review state.
 
 End-to-end verification, failure recovery, secret review, packaging documentation, and demonstration project.
 
+Implemented locally as the `1.0.0rc1` portable Windows candidate with visible startup recovery,
+PyInstaller packaging, bundled migrations and notices, user/backup/troubleshooting guidance,
+automated verification, and a real-media manual acceptance checklist. Promotion to a final release
+requires completing that checklist with a representative video and configured local tools.
+
 ## Deferred
 
 Authentication, cloud deployment, collaboration, guaranteed diarization, word-level timing, dubbing, voice cloning, translation memory, timing-aware rewriting, bulk processing, and production billing.

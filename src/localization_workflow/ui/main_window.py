@@ -1456,6 +1456,6 @@ class MainWindow(QMainWindow):
         QMessageBox.about(
             self,
             "About Localization Workflow",
-            "Localization Workflow\n\n"
+            "Localization Workflow 1.0.0rc1\n\n"
             "A local-first desktop application for AI-assisted audiovisual localization.",
         )

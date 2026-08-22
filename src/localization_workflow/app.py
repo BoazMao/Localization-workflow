@@ -6,7 +6,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 from localization_workflow.application.glossary import GlossaryService
 from localization_workflow.application.projects import ProjectService
@@ -47,11 +47,15 @@ def create_application(argv: Sequence[str] | None = None) -> QApplication:
     return qt_app
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    """Start the native desktop application."""
-    app = create_application(argv)
-    project_root = Path(__file__).resolve().parents[2]
-    environment_file = project_root / ".env"
+def environment_file_path() -> Path:
+    """Locate portable configuration beside the executable or source checkout."""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent / ".env"
+    return Path(__file__).resolve().parents[2] / ".env"
+
+
+def _run(app: QApplication) -> int:
+    environment_file = environment_file_path()
     settings = AppSettings(_env_file=environment_file)  # type: ignore[call-arg]
     paths = AppPaths.discover(settings.data_dir)
     paths.ensure_directories()
@@ -102,3 +106,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     window.show()
     return app.exec()
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Start the native desktop application with visible startup failure recovery."""
+    app = create_application(argv)
+    try:
+        return _run(app)
+    except Exception as error:
+        QMessageBox.critical(
+            None,
+            "Localization Workflow could not start",
+            "The application could not start. Check the local configuration and try again."
+            f"\n\nDetails: {error}",
+        )
+        return 1
