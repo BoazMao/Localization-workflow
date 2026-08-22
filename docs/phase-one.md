@@ -68,6 +68,9 @@ Provider abstraction, target language selection, bulk and single translation, pe
 
 Draft/review/approved/outdated states, editing, approval, filters, and source-revision invalidation.
 
+Implemented locally with persistent human review states, editable translations, bulk review
+and approval actions, state filters, and automatic source-revision invalidation.
+
 ### 8 — SRT export
 
 Validated timestamps, ordered cues, warnings for missing or outdated translations, and downloadable export.

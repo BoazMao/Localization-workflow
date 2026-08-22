@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from queue import Empty, Queue
@@ -63,18 +64,85 @@ class TranslationService:
 
     def configure_openai(self, api_key: str, model: str, base_url: str = "") -> None:
         if not isinstance(self._provider, OpenAITranslationProvider):
-            raise RuntimeError("The active translation provider is not OpenAI.")
+            raise RuntimeError("The active model does not support editable API settings.")
         self._provider.configure(api_key, model, base_url)
 
     def list_translations(self, project_id: str) -> list[SegmentTranslation]:
-        return self._translations.list_for_project(project_id)
+        revisions = {
+            segment.id: segment.source_revision
+            for segment in self._transcripts.list_for_project(project_id)
+        }
+        values = self._translations.list_for_project(project_id)
+        return [
+            replace(value, status=TranslationStatus.OUTDATED)
+            if value.status != TranslationStatus.FAILED
+            and revisions.get(value.segment_id) != value.source_revision
+            else value
+            for value in values
+        ]
+
+    def save_edits(self, project_id: str, changes: dict[str, str]) -> list[SegmentTranslation]:
+        """Save human translation edits as drafts for the current source revision."""
+        segments = {
+            segment.id: segment for segment in self._transcripts.list_for_project(project_id)
+        }
+        translations = {
+            value.segment_id: value for value in self._translations.list_for_project(project_id)
+        }
+        for segment_id, text in changes.items():
+            segment = segments.get(segment_id)
+            current = translations.get(segment_id)
+            clean_text = text.strip()
+            if segment is None or current is None:
+                raise LookupError("One or more translations no longer exist.")
+            if not clean_text:
+                raise ValueError("Translation text cannot be empty.")
+            self._translations.upsert(
+                replace(
+                    current,
+                    text=clean_text,
+                    source_revision=segment.source_revision,
+                    status=TranslationStatus.DRAFT,
+                    error=None,
+                    updated_at=datetime.now(UTC),
+                )
+            )
+        return self.list_translations(project_id)
+
+    def set_review_status(
+        self,
+        project_id: str,
+        segment_ids: set[str],
+        status: TranslationStatus,
+    ) -> list[SegmentTranslation]:
+        """Mark current translations reviewed or approved."""
+        if status not in {TranslationStatus.REVIEWED, TranslationStatus.APPROVED}:
+            raise ValueError("Translations can only be marked reviewed or approved.")
+        if not segment_ids:
+            raise ValueError("Select one or more translations first.")
+        visible = {value.segment_id: value for value in self.list_translations(project_id)}
+        stored = {
+            value.segment_id: value for value in self._translations.list_for_project(project_id)
+        }
+        for segment_id in segment_ids:
+            value = visible.get(segment_id)
+            if value is None:
+                raise LookupError("One or more translations no longer exist.")
+            if value.status in {TranslationStatus.FAILED, TranslationStatus.OUTDATED}:
+                raise ValueError("Failed or outdated translations cannot be reviewed or approved.")
+            if not value.text:
+                raise ValueError("Empty translations cannot be reviewed or approved.")
+        now = datetime.now(UTC)
+        for segment_id in segment_ids:
+            self._translations.upsert(replace(stored[segment_id], status=status, updated_at=now))
+        return self.list_translations(project_id)
 
     def export_srt(self, project_id: str, destination: Path) -> int:
         segments = self._transcripts.list_for_project(project_id)
         translations = {
             value.segment_id: value
             for value in self.list_translations(project_id)
-            if value.status == TranslationStatus.READY and value.text
+            if value.status == TranslationStatus.APPROVED and value.text
         }
         available = [segment for segment in segments if segment.id in translations]
         if not available:
@@ -196,7 +264,7 @@ class TranslationService:
                 target_language,
                 text,
                 segment.source_revision,
-                TranslationStatus.READY,
+                TranslationStatus.DRAFT,
                 self._provider.name,
                 self._provider.model,
                 None,

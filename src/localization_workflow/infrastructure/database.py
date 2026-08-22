@@ -56,6 +56,8 @@ class ProjectRecord(Base):
     transcription_error: Mapped[str | None] = mapped_column(String(1000))
     target_language: Mapped[str | None] = mapped_column(String(100))
     wordbank: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    whisper_wordbank: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    whisper_wordbank_enabled: Mapped[bool] = mapped_column(nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
@@ -200,6 +202,8 @@ class ProjectRepository:
             transcription_error=project.transcription_error,
             target_language=project.target_language,
             wordbank=project.wordbank,
+            whisper_wordbank=project.whisper_wordbank,
+            whisper_wordbank_enabled=project.whisper_wordbank_enabled,
             created_at=project.created_at,
             updated_at=project.updated_at,
         )
@@ -242,6 +246,8 @@ class ProjectRepository:
             transcription_error=record.transcription_error,
             target_language=record.target_language,
             wordbank=record.wordbank,
+            whisper_wordbank=record.whisper_wordbank,
+            whisper_wordbank_enabled=record.whisper_wordbank_enabled,
         )
 
 

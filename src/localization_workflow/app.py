@@ -50,7 +50,9 @@ def create_application(argv: Sequence[str] | None = None) -> QApplication:
 def main(argv: Sequence[str] | None = None) -> int:
     """Start the native desktop application."""
     app = create_application(argv)
-    settings = AppSettings()
+    project_root = Path(__file__).resolve().parents[2]
+    environment_file = project_root / ".env"
+    settings = AppSettings(_env_file=environment_file)  # type: ignore[call-arg]
     paths = AppPaths.discover(settings.data_dir)
     paths.ensure_directories()
 
@@ -93,7 +95,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         transcription=transcription,
         glossary=glossary,
         translation=translation,
-        api_settings=OpenAISettingsStore(Path(".env")),
+        api_settings=OpenAISettingsStore(environment_file),
         initial_api_key=settings.openai_api_key or "",
         initial_model=settings.openai_translation_model,
         initial_base_url=settings.openai_base_url or "",

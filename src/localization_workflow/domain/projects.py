@@ -36,7 +36,10 @@ class TranscriptionStatus(StrEnum):
 class TranslationStatus(StrEnum):
     """Per-segment translation state."""
 
-    READY = "ready"
+    DRAFT = "draft"
+    REVIEWED = "reviewed"
+    APPROVED = "approved"
+    OUTDATED = "outdated"
     FAILED = "failed"
 
 
@@ -79,6 +82,8 @@ class Project:
     transcription_error: str | None = None
     target_language: str | None = None
     wordbank: str = ""
+    whisper_wordbank: str = ""
+    whisper_wordbank_enabled: bool = False
 
 
 @dataclass(frozen=True, slots=True)

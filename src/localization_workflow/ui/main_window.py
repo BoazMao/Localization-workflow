@@ -10,6 +10,7 @@ from PySide6.QtCore import QSignalBlocker, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QAction, QCloseEvent, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QCheckBox,
     QComboBox,
     QDialog,
     QFileDialog,
@@ -214,6 +215,7 @@ class MainWindow(QMainWindow):
         self._translation_timer.setInterval(100)
         self._translation_timer.timeout.connect(self._update_translation_elapsed)
         self._dirty_segments: dict[str, str] = {}
+        self._dirty_translations: dict[str, str] = {}
         self._initial_api_key = initial_api_key
         self._initial_model = initial_model
         self._initial_base_url = initial_base_url
@@ -232,7 +234,7 @@ class MainWindow(QMainWindow):
         self._quit_action.triggered.connect(self.close)
         self._about_action = QAction("About", self)
         self._about_action.triggered.connect(self._show_about)
-        self._api_settings_action = QAction("ChatGPT API settings…", self)
+        self._api_settings_action = QAction("AI model API settings…", self)
         self._api_settings_action.triggered.connect(self._show_api_settings)
         self._instructions_action = QAction("Translation instructions…", self)
         self._instructions_action.triggered.connect(self._show_translation_instructions)
@@ -343,6 +345,14 @@ class MainWindow(QMainWindow):
         self._import_model_button.clicked.connect(self._choose_model)
         model_controls.addWidget(self._model_label, 1)
         model_controls.addWidget(self._import_model_button)
+        whisper_wordbank_controls = QHBoxLayout()
+        self._use_whisper_wordbank = QCheckBox("Use wordbank")
+        self._use_whisper_wordbank.toggled.connect(self._toggle_whisper_wordbank)
+        edit_whisper_wordbank_button = QPushButton("Edit Whisper wordbank")
+        edit_whisper_wordbank_button.clicked.connect(self._show_whisper_wordbank)
+        whisper_wordbank_controls.addWidget(self._use_whisper_wordbank)
+        whisper_wordbank_controls.addWidget(edit_whisper_wordbank_button)
+        whisper_wordbank_controls.addStretch()
         self._transcript_table = QTableWidget(0, 3)
         self._transcript_table.setHorizontalHeaderLabels(("Time", "Source transcript", "Rev"))
         header = self._transcript_table.horizontalHeader()
@@ -385,7 +395,7 @@ class MainWindow(QMainWindow):
         target_controls.addStretch()
         wordbank_help = QLabel(
             "Paste terminology, examples, style notes, alternatives, or any other natural-"
-            "language context. ChatGPT receives the complete wordbank for every translation."
+            "language context. The AI model receives the complete wordbank for every translation."
         )
         wordbank_help.setWordWrap(True)
         wordbank_help.setStyleSheet("color: #5f6368;")
@@ -404,7 +414,7 @@ class MainWindow(QMainWindow):
         translation_layout = QVBoxLayout(translation_page)
         translation_layout.setContentsMargins(0, 8, 0, 0)
         provider_row = QHBoxLayout()
-        self._provider_label = QLabel(f"ChatGPT translation: {self._translation.provider_label}")
+        self._provider_label = QLabel(f"AI translation: {self._translation.provider_label}")
         self._provider_label.setStyleSheet("color: #5f6368;")
         provider_row.addWidget(self._provider_label)
         provider_row.addStretch()
@@ -415,6 +425,17 @@ class MainWindow(QMainWindow):
         self._translate_selected_button.clicked.connect(self._translate_selected)
         self._retry_translation_button = QPushButton("Retry failed")
         self._retry_translation_button.clicked.connect(self._retry_failed_translations)
+        self._save_translation_button = QPushButton("Save edits")
+        self._save_translation_button.clicked.connect(self._save_translation_edits)
+        self._save_translation_button.setEnabled(False)
+        self._mark_reviewed_button = QPushButton("Mark reviewed")
+        self._mark_reviewed_button.clicked.connect(
+            lambda: self._mark_translation_status(TranslationStatus.REVIEWED)
+        )
+        self._approve_translation_button = QPushButton("Approve")
+        self._approve_translation_button.clicked.connect(
+            lambda: self._mark_translation_status(TranslationStatus.APPROVED)
+        )
         self._export_translation_button = QPushButton("Export translated SRT")
         self._export_translation_button.clicked.connect(self._export_translated_srt)
         self._cancel_translation_button = QPushButton("Cancel")
@@ -426,11 +447,30 @@ class MainWindow(QMainWindow):
             self._translate_all_button,
             self._translate_selected_button,
             self._retry_translation_button,
+            self._save_translation_button,
+            self._mark_reviewed_button,
+            self._approve_translation_button,
             self._export_translation_button,
             self._cancel_translation_button,
         ):
             translation_controls.addWidget(button)
         translation_controls.addWidget(self._translation_status_detail, 1)
+        filter_row = QHBoxLayout()
+        filter_row.addWidget(QLabel("Show"))
+        self._translation_filter = QComboBox()
+        for label, value in (
+            ("All", "all"),
+            ("Not translated", "missing"),
+            ("Draft", TranslationStatus.DRAFT.value),
+            ("Reviewed", TranslationStatus.REVIEWED.value),
+            ("Approved", TranslationStatus.APPROVED.value),
+            ("Outdated", TranslationStatus.OUTDATED.value),
+            ("Failed", TranslationStatus.FAILED.value),
+        ):
+            self._translation_filter.addItem(label, value)
+        self._translation_filter.currentIndexChanged.connect(self._apply_translation_filter)
+        filter_row.addWidget(self._translation_filter)
+        filter_row.addStretch()
         self._translation_table = QTableWidget(0, 4)
         self._translation_table.setHorizontalHeaderLabels(
             ("Time", "Source", "Translation", "Status")
@@ -442,9 +482,16 @@ class MainWindow(QMainWindow):
         translation_header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         self._translation_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._translation_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        self._translation_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self._translation_table.setEditTriggers(
+            QAbstractItemView.EditTrigger.DoubleClicked
+            | QAbstractItemView.EditTrigger.EditKeyPressed
+            | QAbstractItemView.EditTrigger.SelectedClicked
+        )
+        self._translation_table.itemChanged.connect(self._on_translation_changed)
+        self._translation_table.cellClicked.connect(self._seek_to_translation_segment)
         translation_layout.addLayout(provider_row)
         translation_layout.addLayout(translation_controls)
+        translation_layout.addLayout(filter_row)
         translation_layout.addWidget(self._translation_table, 1)
 
         workspace_tabs = QTabWidget()
@@ -461,11 +508,16 @@ class MainWindow(QMainWindow):
         model_heading.setStyleSheet("font-weight: 600;")
         transcription_heading = QLabel("Transcription")
         transcription_heading.setStyleSheet("font-weight: 600;")
+        wordbank_heading = QLabel("Recognition vocabulary")
+        wordbank_heading.setStyleSheet("font-weight: 600;")
         media_tools_layout.addWidget(audio_heading)
         media_tools_layout.addLayout(audio_controls)
         media_tools_layout.addSpacing(8)
         media_tools_layout.addWidget(model_heading)
         media_tools_layout.addLayout(model_controls)
+        media_tools_layout.addSpacing(8)
+        media_tools_layout.addWidget(wordbank_heading)
+        media_tools_layout.addLayout(whisper_wordbank_controls)
         media_tools_layout.addSpacing(8)
         media_tools_layout.addWidget(transcription_heading)
         media_tools_layout.addLayout(transcription_controls)
@@ -534,6 +586,7 @@ class MainWindow(QMainWindow):
         self._update_media_display(project)
         self._update_transcription_display(project)
         self._refresh_glossary(project)
+        self._refresh_whisper_wordbank(project)
         self._refresh_translations(project)
         self._pages.setCurrentWidget(self._workspace_page)
 
@@ -708,6 +761,69 @@ class MainWindow(QMainWindow):
         self._model_label.setText(f"Whisper model: {self._transcription.model_name}")
         self.statusBar().showMessage(f"Whisper model selected: {selected.name}", 5000)
 
+    def _refresh_whisper_wordbank(self, project: Project) -> None:
+        blocker = QSignalBlocker(self._use_whisper_wordbank)
+        self._use_whisper_wordbank.setChecked(project.whisper_wordbank_enabled)
+        self._use_whisper_wordbank.setToolTip(
+            f"{len(project.whisper_wordbank)} character(s) saved"
+            if project.whisper_wordbank
+            else "No recognition vocabulary saved"
+        )
+        del blocker
+
+    def _toggle_whisper_wordbank(self, enabled: bool) -> None:
+        if self._current_project is None:
+            return
+        self._current_project = self._transcription.configure_wordbank(
+            self._current_project.id,
+            self._current_project.whisper_wordbank,
+            enabled,
+        )
+        self._refresh_whisper_wordbank(self._current_project)
+        state = "enabled" if enabled else "disabled"
+        self.statusBar().showMessage(f"Whisper wordbank {state}.", 5000)
+
+    def _show_whisper_wordbank(self) -> None:
+        if self._current_project is None:
+            return
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Whisper recognition wordbank")
+        dialog.resize(680, 480)
+        layout = QVBoxLayout(dialog)
+        help_text = QLabel(
+            "Enter source-language names, terminology, and phrases Whisper commonly mishears. "
+            "Keep this concise; it biases recognition but does not force exact matches."
+        )
+        help_text.setWordWrap(True)
+        self._whisper_wordbank_editor = QPlainTextEdit()
+        self._whisper_wordbank_editor.setPlainText(self._current_project.whisper_wordbank)
+        self._whisper_wordbank_editor.setPlaceholderText(
+            "Apex Legends, ImperialHal, Verhulst, Genburten, Gibraltar, Shield Battery"
+        )
+        buttons = QHBoxLayout()
+        save_button = QPushButton("Save wordbank")
+        save_button.clicked.connect(self._save_whisper_wordbank)
+        close_button = QPushButton("Close")
+        close_button.clicked.connect(dialog.accept)
+        buttons.addWidget(save_button)
+        buttons.addWidget(close_button)
+        buttons.addStretch()
+        layout.addWidget(help_text)
+        layout.addWidget(self._whisper_wordbank_editor, 1)
+        layout.addLayout(buttons)
+        dialog.exec()
+
+    def _save_whisper_wordbank(self) -> None:
+        if self._current_project is None:
+            return
+        self._current_project = self._transcription.configure_wordbank(
+            self._current_project.id,
+            self._whisper_wordbank_editor.toPlainText(),
+            self._use_whisper_wordbank.isChecked(),
+        )
+        self._refresh_whisper_wordbank(self._current_project)
+        self.statusBar().showMessage("Whisper wordbank saved.", 5000)
+
     def _cancel_transcription(self) -> None:
         if self._transcription_worker:
             self._cancel_transcription_button.setEnabled(False)
@@ -837,21 +953,22 @@ class MainWindow(QMainWindow):
                 self._player.seek(position)
 
     def _confirm_discard_edits(self) -> bool:
-        if not self._dirty_segments:
+        if not self._dirty_segments and not self._dirty_translations:
             return True
         choice = QMessageBox.question(
             self,
-            "Unsaved transcript changes",
-            "Save transcript changes before continuing?",
+            "Unsaved changes",
+            "Save transcript and translation changes before continuing?",
             QMessageBox.StandardButton.Save
             | QMessageBox.StandardButton.Discard
             | QMessageBox.StandardButton.Cancel,
             QMessageBox.StandardButton.Save,
         )
         if choice == QMessageBox.StandardButton.Save:
-            return self._save_transcript()
+            return self._save_transcript() and self._save_translation_edits()
         if choice == QMessageBox.StandardButton.Discard:
             self._dirty_segments.clear()
+            self._dirty_translations.clear()
             return True
         return False
 
@@ -907,7 +1024,7 @@ class MainWindow(QMainWindow):
         dialog.resize(760, 560)
         layout = QVBoxLayout(dialog)
         description = QLabel(
-            "These global instructions guide every ChatGPT translation. "
+            "These global instructions guide every AI translation. "
             f"Stored locally at: {self._paths.translation_agents}"
         )
         description.setWordWrap(True)
@@ -937,6 +1054,7 @@ class MainWindow(QMainWindow):
         return True
 
     def _refresh_translations(self, project: Project) -> None:
+        blocker = QSignalBlocker(self._translation_table)
         segments = self._transcription.list_segments(project.id)
         translations = {
             value.segment_id: value for value in self._translation.list_translations(project.id)
@@ -952,24 +1070,58 @@ class MainWindow(QMainWindow):
             translated_text = ""
             status = "Not translated"
             if value is not None:
-                if value.status == TranslationStatus.READY:
-                    translated_text = value.text or ""
-                    status = "Ready"
-                else:
+                translated_text = value.text or ""
+                if value.status == TranslationStatus.FAILED:
                     status = "Failed — hover for details"
+                else:
+                    status = value.status.value.title()
+            timing_item.setFlags(timing_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            source_item.setFlags(source_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self._translation_table.setItem(row, 0, timing_item)
             self._translation_table.setItem(row, 1, source_item)
-            self._translation_table.setItem(row, 2, QTableWidgetItem(translated_text))
+            translation_item = QTableWidgetItem(translated_text)
+            translation_item.setData(Qt.ItemDataRole.UserRole, segment.id)
+            if value is None or value.status == TranslationStatus.FAILED:
+                translation_item.setFlags(translation_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self._translation_table.setItem(row, 2, translation_item)
             status_item = QTableWidgetItem(status)
+            status_item.setData(
+                Qt.ItemDataRole.UserRole,
+                value.status.value if value is not None else "missing",
+            )
+            status_item.setFlags(status_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             if value is not None and value.status == TranslationStatus.FAILED:
                 status_item.setToolTip(value.error or "Unknown translation error")
             self._translation_table.setItem(row, 3, status_item)
+        del blocker
+        self._dirty_translations.clear()
+        self._save_translation_button.setEnabled(False)
+        self._apply_translation_filter()
 
-    def _translate_all(self) -> None:
-        self._start_translation(None)
+    def _on_translation_changed(self, item: QTableWidgetItem) -> None:
+        if item.column() != 2:
+            return
+        segment_id = item.data(Qt.ItemDataRole.UserRole)
+        if segment_id:
+            self._dirty_translations[str(segment_id)] = item.text()
+            self._save_translation_button.setEnabled(True)
 
-    def _translate_selected(self) -> None:
-        selected_ids = {
+    def _save_translation_edits(self) -> bool:
+        if not self._dirty_translations:
+            return True
+        if self._current_project is None:
+            return False
+        try:
+            self._translation.save_edits(self._current_project.id, self._dirty_translations)
+        except Exception as error:
+            QMessageBox.critical(self, "Could not save translation edits", str(error))
+            return False
+        self._refresh_translations(self._current_project)
+        self.statusBar().showMessage("Translation edits saved as drafts.", 5000)
+        return True
+
+    def _selected_translation_ids(self) -> set[str]:
+        return {
             str(item.data(Qt.ItemDataRole.UserRole))
             for item in (
                 self._translation_table.item(index.row(), 0)
@@ -977,6 +1129,60 @@ class MainWindow(QMainWindow):
             )
             if item is not None and item.data(Qt.ItemDataRole.UserRole)
         }
+
+    def _seek_to_translation_segment(self, row: int, _column: int) -> None:
+        if self._current_project is None:
+            return
+        segment_id_item = self._translation_table.item(row, 0)
+        if segment_id_item is None:
+            return
+        segment_id = segment_id_item.data(Qt.ItemDataRole.UserRole)
+        segment = next(
+            (
+                value
+                for value in self._transcription.list_segments(self._current_project.id)
+                if value.id == segment_id
+            ),
+            None,
+        )
+        if segment is not None:
+            self._player.seek(segment.start_ms)
+
+    def _mark_translation_status(self, status: TranslationStatus) -> None:
+        if self._current_project is None:
+            return
+        if not self._save_translation_edits():
+            return
+        selected_ids = self._selected_translation_ids()
+        if not selected_ids:
+            QMessageBox.information(self, "Review translations", "Select one or more rows first.")
+            return
+        try:
+            self._translation.set_review_status(self._current_project.id, selected_ids, status)
+        except Exception as error:
+            QMessageBox.warning(self, "Could not update review status", str(error))
+            return
+        self._refresh_translations(self._current_project)
+        self.statusBar().showMessage(
+            f"{len(selected_ids)} translation(s) marked {status.value}.", 5000
+        )
+
+    def _apply_translation_filter(self) -> None:
+        selected = str(self._translation_filter.currentData())
+        for row in range(self._translation_table.rowCount()):
+            status_item = self._translation_table.item(row, 3)
+            row_status = (
+                str(status_item.data(Qt.ItemDataRole.UserRole))
+                if status_item is not None
+                else "missing"
+            )
+            self._translation_table.setRowHidden(row, selected != "all" and row_status != selected)
+
+    def _translate_all(self) -> None:
+        self._start_translation(None)
+
+    def _translate_selected(self) -> None:
+        selected_ids = self._selected_translation_ids()
         if not selected_ids:
             QMessageBox.information(
                 self, "Translate selected", "Select one or more translation rows first."
@@ -1029,7 +1235,7 @@ class MainWindow(QMainWindow):
         self._translation_started_at = perf_counter()
         self._translation_status_detail.setText("Preparing batch…")
         self._translation_timer.start()
-        self.statusBar().showMessage("Translating with ChatGPT…")
+        self.statusBar().showMessage("Translating with the AI model…")
         worker.start()
 
     def _update_translation_elapsed(self) -> None:
@@ -1098,6 +1304,9 @@ class MainWindow(QMainWindow):
         self._translate_all_button.setEnabled(not running)
         self._translate_selected_button.setEnabled(not running)
         self._retry_translation_button.setEnabled(not running)
+        self._save_translation_button.setEnabled(not running and bool(self._dirty_translations))
+        self._mark_reviewed_button.setEnabled(not running)
+        self._approve_translation_button.setEnabled(not running)
         self._export_translation_button.setEnabled(not running)
         self._cancel_translation_button.setEnabled(True)
         self._cancel_translation_button.setVisible(running)
@@ -1109,7 +1318,7 @@ class MainWindow(QMainWindow):
 
     def _show_api_settings(self) -> None:
         dialog = QDialog(self)
-        dialog.setWindowTitle("ChatGPT API settings")
+        dialog.setWindowTitle("AI model API settings")
         dialog.setMinimumWidth(560)
         layout = QVBoxLayout(dialog)
         help_text = QLabel(
@@ -1180,8 +1389,8 @@ class MainWindow(QMainWindow):
         self._initial_api_key = values.api_key.strip()
         self._initial_model = values.model.strip()
         self._initial_base_url = values.base_url.strip()
-        self._provider_label.setText(f"ChatGPT translation: {self._translation.provider_label}")
-        self.statusBar().showMessage("ChatGPT API settings saved and activated.", 5000)
+        self._provider_label.setText(f"AI translation: {self._translation.provider_label}")
+        self.statusBar().showMessage("AI model API settings saved and activated.", 5000)
 
     def closeEvent(self, event: QCloseEvent) -> None:
         if self._confirm_discard_edits():

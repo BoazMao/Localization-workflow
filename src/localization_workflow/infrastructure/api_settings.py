@@ -21,9 +21,9 @@ class OpenAISettingsStore:
 
     def save(self, values: OpenAISettings) -> None:
         if not values.api_key.strip():
-            raise ValueError("An OpenAI API key is required.")
+            raise ValueError("A translation API key is required.")
         if not values.model.strip():
-            raise ValueError("An OpenAI model name is required.")
+            raise ValueError("A translation model name is required.")
         existing = self.path.read_text(encoding="utf-8").splitlines() if self.path.exists() else []
         replacements = {
             "OPENAI_API_KEY": values.api_key.strip(),

@@ -43,6 +43,7 @@ class SpeechToTextProvider(Protocol):
         self,
         audio_path: Path,
         language: str,
+        prompt: str | None,
         progress: ProgressCallback,
         cancel: Event,
     ) -> list[ProviderSegment]: ...
@@ -132,6 +133,7 @@ class ConstMeWhisperProvider:
         self,
         audio_path: Path,
         language: str,
+        prompt: str | None,
         progress: ProgressCallback,
         cancel: Event,
     ) -> list[ProviderSegment]:
@@ -159,6 +161,8 @@ class ConstMeWhisperProvider:
             str(audio_path.resolve()),
             "-nc",
         ]
+        if prompt and prompt.strip():
+            command.extend(("--prompt", prompt.strip()))
         progress(5)
         process = subprocess.Popen(
             command,
