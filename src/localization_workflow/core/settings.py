@@ -22,3 +22,8 @@ class AppSettings(BaseSettings):
     windows_powershell_path: str = Field(
         default="powershell.exe", validation_alias="WINDOWS_POWERSHELL_PATH"
     )
+    openai_api_key: str | None = Field(default=None, validation_alias="OPENAI_API_KEY")
+    openai_translation_model: str = Field(
+        default="gpt-5.6-terra", validation_alias="OPENAI_TRANSLATION_MODEL"
+    )
+    openai_base_url: str | None = Field(default=None, validation_alias="OPENAI_BASE_URL")

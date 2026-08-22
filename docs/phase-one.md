@@ -50,9 +50,15 @@ persistence, deterministic test provider, and read-only transcript display.
 
 Segment editor, click-to-seek, save feedback, revision tracking, and restart persistence.
 
+Implemented locally on `agent/milestone-four` with atomic source-text edits, stable segment
+IDs, revision increments, click-to-seek playback, and unsaved-change protection.
+
 ### 5 — Glossary
 
 Language-aware terminology entries, matching, constraints, and per-segment preview.
+
+Implemented locally on `agent/milestone-five` with persistent target languages, validated
+terminology CRUD, case-insensitive whole-term matching, and transcript constraint previews.
 
 ### 6 — Translation
 
@@ -61,6 +67,9 @@ Provider abstraction, target language selection, bulk and single translation, pe
 ### 7 — Review and invalidation
 
 Draft/review/approved/outdated states, editing, approval, filters, and source-revision invalidation.
+
+Implemented locally with persistent human review states, editable translations, bulk review
+and approval actions, state filters, and automatic source-revision invalidation.
 
 ### 8 — SRT export
 

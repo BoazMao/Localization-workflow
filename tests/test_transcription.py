@@ -28,13 +28,15 @@ class FakeProbe:
 
 class FakeSpeechProvider:
     model_name = "deterministic-test-model"
+    last_prompt: str | None = None
 
     def select_model(self, path: Path) -> None:
         self.model_name = path.name
 
-    def transcribe(self, audio_path, language, progress, cancel):
+    def transcribe(self, audio_path, language, prompt, progress, cancel):
         assert audio_path.is_file()
         assert language == "English"
+        type(self).last_prompt = prompt
         assert not cancel.is_set()
         progress(50)
         progress(100)
@@ -55,10 +57,11 @@ def make_services(tmp_path: Path):
         FakeAudioProcessor(),
         transcripts_repository,
     )
+    speech_provider = FakeSpeechProvider()
     transcription = TranscriptionService(
         projects_repository,
         transcripts_repository,
-        FakeSpeechProvider(),
+        speech_provider,
         ManagedWhisperModels(tmp_path / "models"),
     )
     return projects, transcription
@@ -108,6 +111,31 @@ def test_transcription_persists_stable_ordered_segments(tmp_path: Path) -> None:
     assert len({segment.id for segment in segments}) == 2
 
 
+def test_whisper_wordbank_is_persisted_and_used_only_when_enabled(tmp_path: Path) -> None:
+    projects, transcription = make_services(tmp_path)
+    project = projects.create("Vocabulary", "English")
+    source = tmp_path / "source.mp4"
+    source.write_bytes(b"media")
+    projects.import_media(project.id, source)
+    projects.prepare_audio(project.id, lambda _value: None, Event())
+
+    configured = transcription.configure_wordbank(
+        project.id,
+        "  ImperialHal, Verhulst, Shield Battery  ",
+        True,
+    )
+    reopened = projects.get(project.id)
+
+    assert configured.whisper_wordbank == "ImperialHal, Verhulst, Shield Battery"
+    assert reopened.whisper_wordbank_enabled is True
+    transcription.transcribe(project.id, lambda _value: None, Event())
+    assert FakeSpeechProvider.last_prompt == "ImperialHal, Verhulst, Shield Battery"
+
+    transcription.configure_wordbank(project.id, reopened.whisper_wordbank, False)
+    transcription.transcribe(project.id, lambda _value: None, Event())
+    assert FakeSpeechProvider.last_prompt is None
+
+
 def test_replacing_media_invalidates_transcript(tmp_path: Path) -> None:
     projects, transcription = make_services(tmp_path)
     project = projects.create("Replacement", "English")
@@ -136,3 +164,45 @@ def test_transcription_requires_explicit_language(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="spoken source language"):
         transcription.transcribe(project.id, lambda _value: None, Event())
+
+
+def test_edit_preserves_segment_id_and_increments_revision(tmp_path: Path) -> None:
+    projects, transcription = make_services(tmp_path)
+    project = projects.create("Review", "English")
+    source = tmp_path / "source.mp4"
+    source.write_bytes(b"media")
+    projects.import_media(project.id, source)
+    projects.prepare_audio(project.id, lambda _value: None, Event())
+    transcription.transcribe(project.id, lambda _value: None, Event())
+    original = transcription.list_segments(project.id)[0]
+
+    updated = transcription.save_edits(project.id, {original.id: "Corrected source text."})[0]
+
+    assert updated.id == original.id
+    assert updated.start_ms == original.start_ms
+    assert updated.end_ms == original.end_ms
+    assert updated.text == "Corrected source text."
+    assert updated.source_revision == original.source_revision + 1
+
+
+def test_saving_unchanged_text_does_not_increment_revision(tmp_path: Path) -> None:
+    projects, transcription = make_services(tmp_path)
+    project = projects.create("No-op review", "English")
+    source = tmp_path / "source.mp4"
+    source.write_bytes(b"media")
+    projects.import_media(project.id, source)
+    projects.prepare_audio(project.id, lambda _value: None, Event())
+    transcription.transcribe(project.id, lambda _value: None, Event())
+    original = transcription.list_segments(project.id)[0]
+
+    unchanged = transcription.save_edits(project.id, {original.id: original.text})[0]
+
+    assert unchanged.source_revision == original.source_revision
+
+
+def test_empty_segment_edit_is_rejected(tmp_path: Path) -> None:
+    projects, transcription = make_services(tmp_path)
+    project = projects.create("Validation", "English")
+
+    with pytest.raises(ValueError, match="cannot be empty"):
+        transcription.save_edits(project.id, {"segment-id": "   "})

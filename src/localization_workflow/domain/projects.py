@@ -33,6 +33,16 @@ class TranscriptionStatus(StrEnum):
     FAILED = "failed"
 
 
+class TranslationStatus(StrEnum):
+    """Per-segment translation state."""
+
+    DRAFT = "draft"
+    REVIEWED = "reviewed"
+    APPROVED = "approved"
+    OUTDATED = "outdated"
+    FAILED = "failed"
+
+
 @dataclass(frozen=True, slots=True)
 class MediaInfo:
     """Normalized metadata returned by a media probe."""
@@ -70,6 +80,10 @@ class Project:
     transcription_status: TranscriptionStatus = TranscriptionStatus.NOT_STARTED
     transcription_model: str | None = None
     transcription_error: str | None = None
+    target_language: str | None = None
+    wordbank: str = ""
+    whisper_wordbank: str = ""
+    whisper_wordbank_enabled: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,3 +97,29 @@ class TranscriptSegment:
     end_ms: int
     text: str
     source_revision: int = 1
+
+
+@dataclass(frozen=True, slots=True)
+class GlossaryEntry:
+    """Required translation for a source-language term."""
+
+    id: str
+    project_id: str
+    source_term: str
+    target_term: str
+
+
+@dataclass(frozen=True, slots=True)
+class SegmentTranslation:
+    """Persisted target text generated from a source revision."""
+
+    segment_id: str
+    project_id: str
+    target_language: str
+    text: str | None
+    source_revision: int
+    status: TranslationStatus
+    provider: str
+    model: str
+    error: str | None
+    updated_at: datetime

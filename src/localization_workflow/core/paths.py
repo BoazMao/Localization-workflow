@@ -22,6 +22,7 @@ class AppPaths:
     models: Path
     tools: Path
     database: Path
+    translation_agents: Path
 
     @classmethod
     def discover(cls, configured_data_dir: Path | None = None) -> AppPaths:
@@ -46,6 +47,7 @@ class AppPaths:
             models=data / "models",
             tools=data / "tools",
             database=data / "localization-workflow.sqlite3",
+            translation_agents=data / "AGENTS.md",
         )
 
     def ensure_directories(self) -> None:
