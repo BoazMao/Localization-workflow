@@ -6,7 +6,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 from localization_workflow.application.glossary import GlossaryService
 from localization_workflow.application.projects import ProjectService
@@ -25,10 +25,16 @@ from localization_workflow.infrastructure.database import (
 )
 from localization_workflow.infrastructure.instructions import TranslationInstructionsStore
 from localization_workflow.infrastructure.media import FFprobeMediaProbe, ManagedMediaStore
+from localization_workflow.infrastructure.media_tools import (
+    MediaToolPaths,
+    MediaToolSettingsStore,
+    discover_media_tools,
+)
 from localization_workflow.infrastructure.models import ManagedWhisperModels
 from localization_workflow.providers.transcription import ConstMeWhisperProvider
 from localization_workflow.providers.translation import OpenAITranslationProvider
 from localization_workflow.ui.main_window import MainWindow
+from localization_workflow.ui.media_tool_setup import MediaToolSetupDialog
 
 
 def create_application(argv: Sequence[str] | None = None) -> QApplication:
@@ -47,12 +53,34 @@ def create_application(argv: Sequence[str] | None = None) -> QApplication:
     return qt_app
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    """Start the native desktop application."""
-    app = create_application(argv)
-    project_root = Path(__file__).resolve().parents[2]
-    environment_file = project_root / ".env"
+def environment_file_path() -> Path:
+    """Locate portable configuration beside the executable or source checkout."""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent / ".env"
+    return Path(__file__).resolve().parents[2] / ".env"
+
+
+def ensure_media_tools(
+    settings: AppSettings, environment_file: Path
+) -> MediaToolPaths | None:
+    """Detect media tools or collect them through first-run desktop setup."""
+    detected = discover_media_tools(settings.ffmpeg_path, settings.ffprobe_path)
+    if detected is None:
+        dialog = MediaToolSetupDialog(settings.ffmpeg_path, settings.ffprobe_path)
+        dialog.exec()
+        detected = dialog.media_tools
+    if detected is None:
+        return None
+    MediaToolSettingsStore(environment_file).save(detected)
+    return detected
+
+
+def _run(app: QApplication) -> int:
+    environment_file = environment_file_path()
     settings = AppSettings(_env_file=environment_file)  # type: ignore[call-arg]
+    media_tools = ensure_media_tools(settings, environment_file)
+    if media_tools is None:
+        return 0
     paths = AppPaths.discover(settings.data_dir)
     paths.ensure_directories()
 
@@ -62,11 +90,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     transcripts = TranscriptRepository(database)
     glossary_repository = GlossaryRepository(database)
     translation_repository = TranslationRepository(database)
-    media_store = ManagedMediaStore(paths.media, FFprobeMediaProbe(settings.ffprobe_path))
-    if settings.ffmpeg_path is None:
-        msg = "FFMPEG_PATH must be configured before starting the application."
-        raise RuntimeError(msg)
-    audio_processor = FFmpegAudioProcessor(paths.derived, settings.ffmpeg_path)
+    media_store = ManagedMediaStore(paths.media, FFprobeMediaProbe(media_tools.ffprobe))
+    audio_processor = FFmpegAudioProcessor(paths.derived, media_tools.ffmpeg)
     projects = ProjectService(repository, media_store, audio_processor, transcripts)
     models = ManagedWhisperModels(paths.models, settings.whisper_model_path)
     speech_provider = ConstMeWhisperProvider(
@@ -102,3 +127,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     window.show()
     return app.exec()
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Start the native desktop application with visible startup failure recovery."""
+    app = create_application(argv)
+    try:
+        return _run(app)
+    except Exception as error:
+        QMessageBox.critical(
+            None,
+            "Localization Workflow could not start",
+            "The application could not start. Check the local configuration and try again."
+            f"\n\nDetails: {error}",
+        )
+        return 1

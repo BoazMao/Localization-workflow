@@ -75,9 +75,18 @@ and approval actions, state filters, and automatic source-revision invalidation.
 
 Validated timestamps, ordered cues, warnings for missing or outdated translations, and downloadable export.
 
+Implemented locally with export-readiness counts, approved-only and explicit draft-inclusive
+modes, chronological timestamp validation, safe filenames, atomic UTF-8 BOM output, and clear
+warnings for every omitted review state.
+
 ### 9 — Hardening
 
 End-to-end verification, failure recovery, secret review, packaging documentation, and demonstration project.
+
+Implemented locally as the `1.0.0rc1` portable Windows candidate with visible startup recovery,
+PyInstaller packaging, bundled migrations and notices, user/backup/troubleshooting guidance,
+automated verification, and a real-media manual acceptance checklist. Promotion to a final release
+requires completing that checklist with a representative video and configured local tools.
 
 ## Deferred
 

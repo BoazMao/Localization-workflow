@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from queue import Empty, Queue
@@ -31,6 +31,31 @@ from localization_workflow.providers.translation import (
 
 class TranslationCancelled(RuntimeError):
     """User cancelled a translation batch."""
+
+
+@dataclass(frozen=True, slots=True)
+class ExportReadiness:
+    """Review-state summary used to make an informed export choice."""
+
+    total: int
+    approved: int
+    reviewed: int
+    draft: int
+    outdated: int
+    failed: int
+    missing: int
+
+    @property
+    def approved_only_count(self) -> int:
+        return self.approved
+
+    @property
+    def usable_count(self) -> int:
+        return self.approved + self.reviewed + self.draft
+
+    @property
+    def omitted_count(self) -> int:
+        return self.outdated + self.failed + self.missing
 
 
 class TranslationService:
@@ -137,25 +162,93 @@ class TranslationService:
             self._translations.upsert(replace(stored[segment_id], status=status, updated_at=now))
         return self.list_translations(project_id)
 
-    def export_srt(self, project_id: str, destination: Path) -> int:
+    def export_readiness(self, project_id: str) -> ExportReadiness:
         segments = self._transcripts.list_for_project(project_id)
+        translations = {value.segment_id: value for value in self.list_translations(project_id)}
+        counts = {status: 0 for status in TranslationStatus}
+        missing = 0
+        for segment in segments:
+            value = translations.get(segment.id)
+            if value is None:
+                missing += 1
+            else:
+                counts[value.status] += 1
+        return ExportReadiness(
+            total=len(segments),
+            approved=counts[TranslationStatus.APPROVED],
+            reviewed=counts[TranslationStatus.REVIEWED],
+            draft=counts[TranslationStatus.DRAFT],
+            outdated=counts[TranslationStatus.OUTDATED],
+            failed=counts[TranslationStatus.FAILED],
+            missing=missing,
+        )
+
+    def export_srt(
+        self,
+        project_id: str,
+        destination: Path,
+        *,
+        include_unapproved: bool = False,
+    ) -> int:
+        """Write a validated UTF-8 BOM SubRip file without partial output."""
+        if destination.suffix.casefold() != ".srt":
+            raise ValueError("The subtitle output filename must end with .srt.")
+        if not destination.parent.is_dir():
+            raise ValueError("The selected subtitle output folder does not exist.")
+        segments = self._transcripts.list_for_project(project_id)
+        eligible_statuses = {TranslationStatus.APPROVED}
+        if include_unapproved:
+            eligible_statuses.update({TranslationStatus.DRAFT, TranslationStatus.REVIEWED})
         translations = {
             value.segment_id: value
             for value in self.list_translations(project_id)
-            if value.status == TranslationStatus.APPROVED and value.text
+            if value.status in eligible_statuses and value.text
         }
         available = [segment for segment in segments if segment.id in translations]
         if not available:
-            raise ValueError("There are no completed translations to export.")
-        blocks = []
+            scope = "usable" if include_unapproved else "approved"
+            raise ValueError(f"There are no {scope} translations to export.")
+        self._validate_export_segments(available)
+        blocks: list[str] = []
         for index, segment in enumerate(available, start=1):
             translation = translations[segment.id]
+            text = self._normalize_srt_text(translation.text or "")
             blocks.append(
                 f"{index}\n{self._srt_time(segment.start_ms)} --> "
-                f"{self._srt_time(segment.end_ms)}\n{translation.text}"
+                f"{self._srt_time(segment.end_ms)}\n{text}"
             )
-        destination.write_text("\n\n".join(blocks) + "\n", encoding="utf-8-sig")
+        temporary = destination.with_name(f".{destination.name}.tmp")
+        try:
+            temporary.write_text(
+                "\n\n".join(blocks) + "\n",
+                encoding="utf-8-sig",
+                newline="\n",
+            )
+            temporary.replace(destination)
+        finally:
+            temporary.unlink(missing_ok=True)
         return len(available)
+
+    @staticmethod
+    def _validate_export_segments(segments: list[TranscriptSegment]) -> None:
+        previous_start = -1
+        for segment in segments:
+            if segment.start_ms < 0:
+                raise ValueError("Subtitle timestamps cannot be negative.")
+            if segment.end_ms <= segment.start_ms:
+                raise ValueError("Every subtitle must end after it starts.")
+            if segment.start_ms < previous_start:
+                raise ValueError("Subtitle cues are not in chronological order.")
+            previous_start = segment.start_ms
+
+    @staticmethod
+    def _normalize_srt_text(text: str) -> str:
+        normalized = text.replace("\r\n", "\n").replace("\r", "\n").strip()
+        if not normalized:
+            raise ValueError("Subtitle text cannot be empty.")
+        if "\x00" in normalized:
+            raise ValueError("Subtitle text contains an invalid null character.")
+        return normalized
 
     @staticmethod
     def _srt_time(milliseconds: int) -> str:

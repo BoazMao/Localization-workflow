@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "localization-workflow"
-version = "0.1.0"
+version = "1.0.0rc1"
 description = "Native desktop workflow for AI-assisted video transcription and translation"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -23,6 +23,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "mypy>=1.14,<2",
+  "pyinstaller>=6.15,<7",
   "pytest>=8.3,<9",
   "pytest-cov>=6,<7",
   "pytest-qt>=4.4,<5",
