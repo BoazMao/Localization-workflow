@@ -86,9 +86,3 @@ The app detects FFmpeg and FFprobe on launch. Advanced local overrides can still
 
 The application invokes the unmodified official Const-me/Whisper CLI in a background worker.
 The separate WhisperDesktop interface is not launched or required.
-
-## Status
-
-Phase One implementation is complete through Milestone 9. The `1.0.0rc1` Windows package must
-complete the documented real-media manual acceptance checklist before it is promoted to a final
-release.
