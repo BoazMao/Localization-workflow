@@ -31,10 +31,15 @@ from localization_workflow.infrastructure.media_tools import (
     discover_media_tools,
 )
 from localization_workflow.infrastructure.models import ManagedWhisperModels
+from localization_workflow.infrastructure.whisper_tools import (
+    WhisperCliSettingsStore,
+    discover_whisper_cli,
+)
 from localization_workflow.providers.transcription import ConstMeWhisperProvider
 from localization_workflow.providers.translation import OpenAITranslationProvider
 from localization_workflow.ui.main_window import MainWindow
 from localization_workflow.ui.media_tool_setup import MediaToolSetupDialog
+from localization_workflow.ui.whisper_setup import WhisperSetupDialog
 
 
 def create_application(argv: Sequence[str] | None = None) -> QApplication:
@@ -60,9 +65,7 @@ def environment_file_path() -> Path:
     return Path(__file__).resolve().parents[2] / ".env"
 
 
-def ensure_media_tools(
-    settings: AppSettings, environment_file: Path
-) -> MediaToolPaths | None:
+def ensure_media_tools(settings: AppSettings, environment_file: Path) -> MediaToolPaths | None:
     """Detect media tools or collect them through first-run desktop setup."""
     detected = discover_media_tools(settings.ffmpeg_path, settings.ffprobe_path)
     if detected is None:
@@ -75,14 +78,29 @@ def ensure_media_tools(
     return detected
 
 
+def ensure_whisper_cli(
+    settings: AppSettings, environment_file: Path, tools_directory: Path
+) -> Path | None:
+    """Detect the transcription engine or offer first-run setup."""
+    executable = discover_whisper_cli(settings.whisper_cli_path, tools_directory)
+    if executable is None:
+        dialog = WhisperSetupDialog(tools_directory)
+        dialog.exec()
+        executable = dialog.executable
+    if executable is not None:
+        WhisperCliSettingsStore(environment_file).save(executable)
+    return executable
+
+
 def _run(app: QApplication) -> int:
     environment_file = environment_file_path()
     settings = AppSettings(_env_file=environment_file)  # type: ignore[call-arg]
+    paths = AppPaths.discover(settings.data_dir)
+    paths.ensure_directories()
     media_tools = ensure_media_tools(settings, environment_file)
     if media_tools is None:
         return 0
-    paths = AppPaths.discover(settings.data_dir)
-    paths.ensure_directories()
+    whisper_cli = ensure_whisper_cli(settings, environment_file, paths.tools)
 
     database = Database(paths.database)
     database.migrate()
@@ -96,7 +114,7 @@ def _run(app: QApplication) -> int:
     models = ManagedWhisperModels(paths.models, settings.whisper_model_path)
     speech_provider = ConstMeWhisperProvider(
         models.selected(),
-        settings.whisper_cli_path,
+        whisper_cli,
     )
     transcription = TranscriptionService(repository, transcripts, speech_provider, models)
     glossary = GlossaryService(repository, glossary_repository)

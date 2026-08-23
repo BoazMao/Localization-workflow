@@ -29,10 +29,10 @@ The project deliberately uses mature open-source libraries instead of rebuilding
    python -m pip install -e ".[dev]"
    ```
 
-5. Download `cli.zip` from the official Const-me/Whisper GitHub release and extract it.
-6. Download a multilingual `ggml-*.bin` model from the official whisper.cpp model collection.
-7. Copy `.env.example` to `.env`, then set `WHISPER_CLI_PATH` to `main.exe` and
-   `WHISPER_MODEL_PATH` to the model file.
+5. Download a multilingual `ggml-*.bin` model from the official whisper.cpp model collection.
+6. Copy `.env.example` to `.env`. On first launch, the app detects the Const-me Whisper CLI or
+   offers to download the official package or select an existing `main.exe`. Whisper models remain
+   separate and can be selected from an existing location without duplication.
 8. Run the desktop application:
 
    ```powershell
@@ -86,3 +86,5 @@ The app detects FFmpeg and FFprobe on launch. Advanced local overrides can still
 
 The application invokes the unmodified official Const-me/Whisper CLI in a background worker.
 The separate WhisperDesktop interface is not launched or required.
+When the CLI is missing, first-run setup can download `cli.zip` directly from the official GitHub
+release and install it under the application's managed tools directory.

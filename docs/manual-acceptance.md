@@ -7,6 +7,8 @@ Use a representative 5–15 minute video and a non-production API key with a spe
 - [ ] Extract the complete portable release folder on 64-bit Windows.
 - [ ] Launch without `.env`; confirm FFmpeg and FFprobe are detected or can be selected through the
       setup dialog and that the saved paths are reused on the next launch.
+- [ ] Launch without a Whisper CLI; confirm setup offers download, manual selection, and skip.
+- [ ] Download or select `main.exe`, restart, and confirm Whisper setup is not shown again.
 - [ ] Launch by double-clicking the executable without Python or a terminal.
 - [ ] Confirm no terminal window appears and startup errors use a visible dialog.
 

@@ -8,10 +8,13 @@
 2. Double-click `Localization Workflow.exe`. The app automatically detects FFmpeg and FFprobe.
    If either tool is unavailable, select its `.exe` in the setup dialog; the companion tool in the
    same folder is filled automatically. Validated paths are saved for future launches.
-3. Open **Settings → AI model API settings** to enter or change translation API details.
+3. If the Whisper CLI is unavailable, choose **Download Whisper CLI**, select an existing
+   `main.exe`, or skip transcription setup for now. A validated path is saved automatically.
+4. Open **Settings → AI model API settings** to enter or change translation API details.
 
-Manual `.env` editing is not required for FFmpeg or FFprobe. Advanced users may still create one
-from `.env.example` to override the default data directory or configure other external tools.
+Manual `.env` editing is not required for FFmpeg, FFprobe, or the Whisper CLI. Advanced users may
+still create one from `.env.example` to override the default data directory or configure other
+external tools.
 
 The Whisper model remains external. Selecting an existing model records its path and does not
 duplicate the model file.
