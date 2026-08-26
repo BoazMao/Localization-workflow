@@ -296,8 +296,18 @@ class TranslationService:
         except TranslationCancelled:
             raise
         except Exception as error:
+            existing = {
+                value.segment_id: value
+                for value in self._translations.list_for_project(project_id)
+            }
             for segment in segments:
-                self._persist_result(project, target_language, segment, None, str(error))
+                self._persist_failure(
+                    project,
+                    target_language,
+                    segment,
+                    existing.get(segment.id),
+                    str(error),
+                )
         else:
             for segment in segments:
                 self._persist_result(project, target_language, segment, results[segment.id], None)
@@ -335,7 +345,7 @@ class TranslationService:
         failed_ids = {
             value.segment_id
             for value in self.list_translations(project_id)
-            if value.status == TranslationStatus.FAILED
+            if value.status == TranslationStatus.FAILED or value.last_attempt_error is not None
         }
         if not failed_ids:
             raise ValueError("There are no failed translations to retry.")
@@ -362,6 +372,8 @@ class TranslationService:
                 self._provider.model,
                 None,
                 now,
+                None,
+                now,
             )
         else:
             translation = SegmentTranslation(
@@ -375,5 +387,29 @@ class TranslationService:
                 self._provider.model,
                 error or "Unknown translation error",
                 now,
+                error or "Unknown translation error",
+                now,
             )
         self._translations.upsert(translation)
+
+    def _persist_failure(
+        self,
+        project: Project,
+        target_language: str,
+        segment: TranscriptSegment,
+        current: SegmentTranslation | None,
+        error: str,
+    ) -> None:
+        """Record a failed attempt without destroying a usable translation."""
+        now = datetime.now(UTC)
+        if current is not None and current.text:
+            self._translations.upsert(
+                replace(
+                    current,
+                    last_attempt_error=error,
+                    last_attempt_at=now,
+                )
+            )
+            return
+        self._persist_result(project, target_language, segment, None, error)
+
