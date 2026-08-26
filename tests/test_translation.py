@@ -122,6 +122,7 @@ def test_selected_translation_and_failed_retry_are_persisted(tmp_path: Path) -> 
     assert len(failed) == 1
     assert failed[0].status == TranslationStatus.FAILED
     assert failed[0].error == "temporary provider failure"
+    assert failed[0].last_attempt_error == "temporary provider failure"
 
     provider.fail_text = None
     retried = service.retry_failed(project.id, lambda _value: None, Event())
@@ -130,6 +131,38 @@ def test_selected_translation_and_failed_retry_are_persisted(tmp_path: Path) -> 
     assert retried[0].status == TranslationStatus.DRAFT
     assert retried[0].provider == "Fake ChatGPT"
     assert retried[0].model == "test-model"
+    assert retried[0].last_attempt_error is None
+
+
+def test_failed_retranslation_preserves_approved_translation(tmp_path: Path) -> None:
+    service, _glossary, provider, project, segments, _transcripts = make_service(tmp_path)
+    service.translate(project.id, None, lambda _value: None, Event())
+    service.set_review_status(project.id, {segments[0].id}, TranslationStatus.APPROVED)
+    before = next(
+        value
+        for value in service.list_translations(project.id)
+        if value.segment_id == segments[0].id
+    )
+    provider.fail_text = segments[0].text
+
+    service.translate(project.id, {segments[0].id}, lambda _value: None, Event())
+
+    after = next(
+        value
+        for value in service.list_translations(project.id)
+        if value.segment_id == segments[0].id
+    )
+    assert after.text == before.text
+    assert after.status == TranslationStatus.APPROVED
+    assert after.source_revision == before.source_revision
+    assert after.last_attempt_error == "temporary provider failure"
+    assert after.last_attempt_at is not None
+
+    provider.fail_text = None
+    retried = service.retry_failed(project.id, lambda _value: None, Event())
+    refreshed = next(value for value in retried if value.segment_id == segments[0].id)
+    assert refreshed.status == TranslationStatus.DRAFT
+    assert refreshed.last_attempt_error is None
 
 
 def test_completed_translations_export_as_timestamped_unicode_srt(tmp_path: Path) -> None:
