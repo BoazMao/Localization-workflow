@@ -297,8 +297,7 @@ class TranslationService:
             raise
         except Exception as error:
             existing = {
-                value.segment_id: value
-                for value in self._translations.list_for_project(project_id)
+                value.segment_id: value for value in self._translations.list_for_project(project_id)
             }
             for segment in segments:
                 self._persist_failure(
