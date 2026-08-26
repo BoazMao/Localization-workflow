@@ -341,4 +341,3 @@ def test_export_requires_srt_extension_and_existing_folder(tmp_path: Path) -> No
         service.export_srt(project.id, tmp_path / "subtitles.txt")
     with pytest.raises(ValueError, match="folder does not exist"):
         service.export_srt(project.id, tmp_path / "missing" / "subtitles.srt")
-
