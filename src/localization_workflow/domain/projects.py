@@ -123,3 +123,6 @@ class SegmentTranslation:
     model: str
     error: str | None
     updated_at: datetime
+    last_attempt_error: str | None = None
+    last_attempt_at: datetime | None = None
+
