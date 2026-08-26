@@ -1073,6 +1073,8 @@ class MainWindow(QMainWindow):
                 translated_text = value.text or ""
                 if value.status == TranslationStatus.FAILED:
                     status = "Failed — hover for details"
+                elif value.last_attempt_error:
+                    status = f"{value.status.value.title()} — retry failed"
                 else:
                     status = value.status.value.title()
             timing_item.setFlags(timing_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
@@ -1090,8 +1092,14 @@ class MainWindow(QMainWindow):
                 value.status.value if value is not None else "missing",
             )
             status_item.setFlags(status_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            if value is not None and value.status == TranslationStatus.FAILED:
-                status_item.setToolTip(value.error or "Unknown translation error")
+            if value is not None:
+                if value.status == TranslationStatus.FAILED:
+                    status_item.setToolTip(value.error or "Unknown translation error")
+                elif value.last_attempt_error:
+                    status_item.setToolTip(
+                        "The saved translation was preserved. Latest retry error: "
+                        f"{value.last_attempt_error}"
+                    )
             self._translation_table.setItem(row, 3, status_item)
         del blocker
         self._dirty_translations.clear()
@@ -1314,9 +1322,13 @@ class MainWindow(QMainWindow):
             if isinstance(value, list)
             else []
         )
-        failed = [item for item in translations if item.status == TranslationStatus.FAILED]
+        failed = [
+            item
+            for item in translations
+            if item.status == TranslationStatus.FAILED or item.last_attempt_error is not None
+        ]
         if failed:
-            first_error = failed[0].error or "Unknown API error"
+            first_error = failed[0].last_attempt_error or failed[0].error or "Unknown API error"
             QMessageBox.warning(
                 self,
                 "Translation batch had failures",
@@ -1459,3 +1471,4 @@ class MainWindow(QMainWindow):
             "Localization Workflow 1.0.0rc1\n\n"
             "A local-first desktop application for AI-assisted audiovisual localization.",
         )
+
