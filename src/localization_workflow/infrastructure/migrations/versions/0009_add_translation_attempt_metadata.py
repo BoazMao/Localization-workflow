@@ -29,4 +29,3 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_column("segment_translations", "last_attempt_at")
     op.drop_column("segment_translations", "last_attempt_error")
-
