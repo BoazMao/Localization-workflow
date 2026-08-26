@@ -457,4 +457,3 @@ class TranslationRepository:
             last_attempt_error=record.last_attempt_error,
             last_attempt_at=last_attempt_at,
         )
-
