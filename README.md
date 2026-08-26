@@ -1,6 +1,6 @@
 # Localization Workflow
 
-A local-first desktop workspace for AI-assisted video transcription and terminology-controlled translation.
+A little desktop workspace I made for AI-assisted video transcription and translation.
 
 ## Phase One
 
@@ -39,52 +39,3 @@ The project deliberately uses mature open-source libraries instead of rebuilding
    python -m localization_workflow
    ```
 
-## Verification
-
-```powershell
-ruff check .
-ruff format --check .
-mypy src
-pytest
-```
-
-## Build the portable Windows release
-
-The project uses PyInstaller rather than maintaining a custom application bundler:
-
-```powershell
-.\scripts\build_windows.ps1
-```
-
-The complete portable package is written to `dist\Localization Workflow`. Keep the executable
-and `_internal` folder together. On first launch the app detects FFmpeg and FFprobe or prompts for
-their locations, then saves the configuration automatically. See `docs/user-guide.md` for
-configuration, backups, and troubleshooting and
-`docs/manual-acceptance.md` for the final release checklist.
-
-## Local Windows environment
-
-The current development checkout uses:
-
-- source: `F:\Localization-workflow`
-- virtual environment: `F:\Localization-workflow\.venv`
-- runtime data: `F:\Localization-workflow-data`
-- FFmpeg: `F:\Tools\FFmpeg`
-
-The app detects FFmpeg and FFprobe on launch. Advanced local overrides can still be placed in
-`.env`, then the app can be run with:
-
-```powershell
-.\.venv\Scripts\python.exe -m localization_workflow
-```
-
-## Local transcription requirements
-
-- 64-bit Windows with a Direct3D 11-capable GPU
-- CPU support for AVX1 and F16C
-- An explicit source language on each project
-
-The application invokes the unmodified official Const-me/Whisper CLI in a background worker.
-The separate WhisperDesktop interface is not launched or required.
-When the CLI is missing, first-run setup can download `cli.zip` directly from the official GitHub
-release and install it under the application's managed tools directory.
