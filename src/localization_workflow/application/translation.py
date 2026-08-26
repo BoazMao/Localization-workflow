@@ -411,4 +411,3 @@ class TranslationService:
             )
             return
         self._persist_result(project, target_language, segment, None, error)
-
