@@ -111,6 +111,8 @@ class SegmentTranslationRecord(Base):
     model: Mapped[str] = mapped_column(String(200), nullable=False)
     error: Mapped[str | None] = mapped_column(String(2000))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_attempt_error: Mapped[str | None] = mapped_column(String(2000))
+    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class Database:
@@ -426,6 +428,8 @@ class TranslationRepository:
                     model=translation.model,
                     error=translation.error,
                     updated_at=translation.updated_at,
+                    last_attempt_error=translation.last_attempt_error,
+                    last_attempt_at=translation.last_attempt_at,
                 )
             )
 
@@ -436,6 +440,9 @@ class TranslationRepository:
             if not record.updated_at.tzinfo
             else record.updated_at
         )
+        last_attempt_at = record.last_attempt_at
+        if last_attempt_at is not None and not last_attempt_at.tzinfo:
+            last_attempt_at = last_attempt_at.replace(tzinfo=UTC)
         return SegmentTranslation(
             segment_id=record.segment_id,
             project_id=record.project_id,
@@ -447,4 +454,7 @@ class TranslationRepository:
             model=record.model,
             error=record.error,
             updated_at=updated_at,
+            last_attempt_error=record.last_attempt_error,
+            last_attempt_at=last_attempt_at,
         )
+
